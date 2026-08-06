@@ -52,13 +52,12 @@ describe('OAuthProvider', () => {
     cleanup()
   })
 
-  it('falls back to the last created instance when there is no provider', () => {
-    const oauth = anOAuth('pointer')
-    oauth.setToken({ access_token: 'ambient', type: OAuthType.RESOURCE })
+  it('throws without a provider rather than resolving an ambient instance', () => {
+    // an instance exists and is perfectly usable — it is simply not in context. Answering with it
+    // is what cannot be done correctly when two SSR renders are in flight.
+    anOAuth('no-provider').setToken({ access_token: 'ambient', type: OAuthType.RESOURCE })
 
-    render(<Status />)
-
-    expect(screen.getByTestId('status').textContent).toBe('in:ambient')
+    expect(() => render(<Status />)).toThrow(/no OAuth instance in context/)
     cleanup()
   })
 })

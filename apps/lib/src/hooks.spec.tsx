@@ -1,7 +1,22 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { useOAuth, useOAuthConfig, useOAuthHttp, useOAuthToken, useOAuthUser } from './hooks'
+import { renderToString } from 'react-dom/server'
+import {
+  useAccessToken,
+  useIsAuthorized,
+  useOAuth,
+  useOAuthActions,
+  useOAuthConfig,
+  useOAuthError,
+  useOAuthFetch,
+  useOAuthSelector,
+  useOAuthStatus,
+  useOAuthToken,
+  useOAuthUser,
+  useStoreValue
+} from './hooks'
 import { OAuthProvider } from './provider'
+import { createStore } from './store'
 import { createOAuth, flush, idToken, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
 import { type OAuth, OAuthStatus, OAuthType, type ResourceOwnerConfig } from './types'
 
@@ -61,10 +76,10 @@ describe('useOAuth', () => {
 
 describe('useOAuthToken', () => {
   const Probe = () => {
-    const { value, set } = useOAuthToken()
+    const [token, setToken] = useOAuthToken()
     return (
-      <button type="button" data-testid="t" onClick={() => set({ access_token: 'set-from-ui', type: OAuthType.RESOURCE })}>
-        {value.access_token ?? '-'}
+      <button type="button" data-testid="t" onClick={() => setToken({ access_token: 'set-from-ui', type: OAuthType.RESOURCE })}>
+        {token.access_token ?? '-'}
       </button>
     )
   }
@@ -96,11 +111,11 @@ describe('useOAuthUser', () => {
   })
 })
 
-describe('useOAuthConfig / useOAuthHttp', () => {
-  it('exposes the live config and the instance axios client', () => {
+describe('useOAuthConfig / useOAuthFetch', () => {
+  it('exposes the live config and the instance transport', () => {
     let http: unknown
     const Probe = () => {
-      http = useOAuthHttp()
+      http = useOAuthFetch()
       return <span data-testid="k">{useOAuthConfig().storageKey}</span>
     }
     mount(<Probe />)
@@ -109,7 +124,124 @@ describe('useOAuthConfig / useOAuthHttp', () => {
     act(() => oauth.setStorageKey('tenant.token'))
 
     expect(screen.getByTestId('k').textContent).toBe('tenant.token')
-    expect(http).toBe(oauth.http)
+    expect(http).toBe(oauth.fetch)
     cleanup()
+  })
+})
+
+describe('fine-grained hooks', () => {
+  it('useIsAuthorized does not re-render for token writes that do not change it', () => {
+    let renders = 0
+    const Probe = () => {
+      renders++
+      return <span data-testid="a">{String(useIsAuthorized())}</span>
+    }
+    mount(<Probe />)
+    expect(screen.getByTestId('a').textContent).toBe('false')
+    const baseline = renders
+
+    // exactly what a PKCE handshake writes before the redirect. useOAuth() re-renders on each of these.
+    act(() => oauth.setToken({ nonce: 'n' }))
+    act(() => oauth.setToken({ nonce: 'n', code_verifier: 'v' }))
+    act(() => oauth.setToken({ nonce: 'n', code_verifier: 'v', redirect_uri: 'https://app/cb' }))
+
+    expect(renders).toBe(baseline)
+    expect(screen.getByTestId('a').textContent).toBe('false')
+
+    act(() => oauth.setToken({ access_token: 'at', token_type: 'Bearer' }))
+
+    expect(screen.getByTestId('a').textContent).toBe('true')
+    expect(renders).toBe(baseline + 1)
+    cleanup()
+  })
+
+  it('useOAuth re-renders for all of them — the contrast the narrow hooks exist for', () => {
+    let renders = 0
+    const Probe = () => {
+      renders++
+      return <span data-testid="b">{String(useOAuth().isAuthorized)}</span>
+    }
+    mount(<Probe />)
+    const baseline = renders
+
+    act(() => oauth.setToken({ nonce: 'n' }))
+    act(() => oauth.setToken({ nonce: 'n', code_verifier: 'v' }))
+
+    expect(renders).toBe(baseline + 2)
+    cleanup()
+  })
+
+  it('useOAuthActions is stable and never re-renders', () => {
+    const seen: unknown[] = []
+    let renders = 0
+    const Probe = () => {
+      renders++
+      seen.push(useOAuthActions())
+      return null
+    }
+    mount(<Probe />)
+    const baseline = renders
+
+    act(() => oauth.setToken({ access_token: 'at', token_type: 'Bearer' }))
+
+    // no subscription at all, so a token change cannot touch this component
+    expect(renders).toBe(baseline)
+    expect(seen[0]).toBe(seen[seen.length - 1])
+    cleanup()
+  })
+
+  it('useOAuthSelector narrows to whatever you select', () => {
+    const Probe = () => <span data-testid="s">{useOAuthSelector(token => token.scope ?? '-')}</span>
+    mount(<Probe />)
+    expect(screen.getByTestId('s').textContent).toBe('-')
+
+    act(() => oauth.setToken({ scope: 'openid profile' }))
+
+    expect(screen.getByTestId('s').textContent).toBe('openid profile')
+    cleanup()
+  })
+
+  it('the narrow hooks render their signed-out value on the server', () => {
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer' })
+    const Probe = () => <span>{`${useIsAuthorized()}|${useOAuthStatus()}|${useAccessToken() ?? '-'}|${useOAuthError() ?? '-'}`}</span>
+
+    // the same selector applied to an empty token, so hydration agrees without any extra plumbing
+    const html = renderToString(<OAuthProvider oauth={oauth}>{<Probe />}</OAuthProvider>)
+
+    expect(html).toContain(`false|${OAuthStatus.NOT_AUTHORIZED}|-|-`)
+  })
+})
+
+describe('useStoreValue', () => {
+  it('re-renders on a store write and ignores unrelated ones', () => {
+    const store = createStore({ a: 1, b: 1 })
+    let renders = 0
+    const Probe = () => {
+      renders++
+      return <span data-testid="a">{useStoreValue(store, state => state.a)}</span>
+    }
+    render(<Probe />)
+    expect(screen.getByTestId('a').textContent).toBe('1')
+    const baseline = renders
+
+    act(() => store.setState({ a: 2, b: 1 }))
+    expect(screen.getByTestId('a').textContent).toBe('2')
+
+    // the selected value is unchanged, so useSyncExternalStore bails out of re-rendering
+    act(() => store.setState({ a: 2, b: 9 }))
+    expect(renders).toBe(baseline + 1)
+    cleanup()
+  })
+
+  it('renders the current state on the server, not the state at store creation', () => {
+    const store = createStore({ a: 'initial' })
+    const Probe = () => <span>{useStoreValue(store, state => state.a)}</span>
+
+    // stands in for a token restored from storage or a config filled in by discovery — written after
+    // the store was built but before renderToString. Passing a creation-time getServerSnapshot, which
+    // is what zustand's own useStore does, would render 'initial' here.
+    store.setState({ a: 'written after creation' })
+
+    expect(renderToString(<Probe />)).toContain('written after creation')
   })
 })

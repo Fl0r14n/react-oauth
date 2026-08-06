@@ -4,9 +4,9 @@ import type { OAuth, OAuthConfig, OAuthFunctions } from './types'
 
 /** Shared spec helpers. Not part of the published build — `tsdown` only follows the two entry points. */
 
-// Specs must dispose what they create: the alive-instance count drives the server-side ambiguity
-// detection in getActiveOAuth, and bun runs every spec file in one process — leaked instances from
-// one file would trip the ambiguity error in another. This tracked factory disposes automatically.
+// Specs dispose what they create so watchers do not keep firing across tests — an instance whose
+// config watcher is still live can trigger a refresh against another test's mocks. Instances no longer
+// register anywhere globally, so a leak is a nuisance rather than a correctness problem.
 const live: OAuth[] = []
 
 /** Call at the top of every spec file using {@link createOAuth} — this module is cached, so a

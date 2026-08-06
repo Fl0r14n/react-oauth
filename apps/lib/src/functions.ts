@@ -1,202 +1,141 @@
-import axios, { type RawAxiosRequestHeaders } from 'axios'
-import { type OAuthFunctions, OAuthType } from './types'
+import { type OAuthFetch, type OAuthFunctions, OAuthType } from './types'
 
-const HEADERS: RawAxiosRequestHeaders = {
+/** Every network call, on `fetch`. No axios: the protocol is eight form-encoded POSTs and two GETs, which
+ * needs no client library, and making one a required peer dependency taxed every consumer for it.
+ * `react-oauth-oidc/axios` still exists for apps whose *own* requests want interceptors. */
+
+const FORM_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded',
   Accept: 'application/json'
 }
+
+/** Drops undefined entries so an absent clientSecret does not become the string "undefined". */
+const form = (fields: Record<string, string | undefined>) => {
+  const body = new URLSearchParams()
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) {
+      body.set(key, value)
+    }
+  }
+  return body
+}
+
+/** Reads the body whatever the status, and never rejects.
+ *
+ * Both halves are deliberate. An OAuth error *is* the payload — RFC 6749 §5.2 returns
+ * `{error, error_description}` with a 400, and that has to reach the token rather than become an
+ * exception. And a transport failure must not reject either: `revoke` is called during logout, where the
+ * IdP answers 4xx for an already-invalid token, and a throw there would strand the local session.
+ *
+ * fetch already resolves for non-2xx, so only the network case needs catching. */
+const request = async (url: string, init?: RequestInit, fetchImpl: OAuthFetch = fetch): Promise<any> => {
+  try {
+    const response = await fetchImpl(url, init)
+    return await response.json().catch(() => undefined)
+  } catch {
+    return undefined
+  }
+}
+
+const post = (url: string, fields: Record<string, string | undefined>, headers?: Record<string, string>) =>
+  request(url, { method: 'POST', headers: { ...FORM_HEADERS, ...headers }, body: form(fields) })
 
 export const defaultOAuthFunctions: OAuthFunctions = {
   refresh: async (token, config) => {
     const { tokenPath, clientId, clientSecret, scope } = config || {}
     const { refresh_token, type } = token || {}
-    return (
-      (refresh_token &&
-        tokenPath &&
-        (await axios
-          .post(
-            tokenPath,
-            {
-              client_id: clientId,
-              ...(clientSecret && { client_secret: clientSecret }),
-              grant_type: 'refresh_token',
-              refresh_token,
-              ...(scope && { scope })
-            },
-            {
-              headers: HEADERS
-            }
-          )
-          .catch(err => err.response)
-          .then(r => r?.data)
-          .then(t => ({ ...t, type })))) ||
-      token
-    )
+    if (!refresh_token || !tokenPath) return token
+    const refreshed = await post(tokenPath, {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token,
+      scope
+    })
+    return (refreshed && { ...refreshed, type }) || token
   },
+
   revoke: async (token, config) => {
     const { revokePath, clientId, clientSecret } = config || {}
-    if (revokePath) {
-      const { access_token, refresh_token } = token || {}
-      if (access_token) {
-        await axios
-          .post(
-            revokePath,
-            {
-              ...(clientId && { client_id: clientId }),
-              ...(clientSecret && { client_secret: clientSecret }),
-              token: access_token,
-              token_type_hint: 'access_token'
-            },
-            {
-              headers: HEADERS
-            }
-          )
-          // same swallow as every other call here: revoking an already-invalid token answers 4xx, and
-          // that must not reject — logout has to complete regardless of what the IdP thinks
-          .catch(err => err.response)
-          .then(r => r?.data)
-      }
-      if (refresh_token) {
-        await axios
-          .post(
-            revokePath,
-            {
-              ...(clientId && { client_id: clientId }),
-              ...(clientSecret && { client_secret: clientSecret }),
-              token: refresh_token,
-              token_type_hint: 'refresh_token'
-            },
-            {
-              headers: HEADERS
-            }
-          )
-          .catch(err => err.response)
-          .then(r => r?.data)
+    if (!revokePath) return
+    const { access_token, refresh_token } = token || {}
+    // both, and in this order: an IdP that only honours one still ends up with nothing usable
+    for (const [value, hint] of [
+      [access_token, 'access_token'],
+      [refresh_token, 'refresh_token']
+    ] as const) {
+      if (value) {
+        await post(revokePath, { client_id: clientId, client_secret: clientSecret, token: value, token_type_hint: hint })
       }
     }
   },
+
   authorize: async (token, config) => {
     const { clientId, clientSecret, tokenPath, scope } = config || {}
     const { code, redirect_uri, code_verifier } = token || {}
-    return (
-      (code &&
-        tokenPath &&
-        (await axios
-          .post(
-            tokenPath,
-            {
-              code,
-              client_id: clientId,
-              ...(clientSecret && { client_secret: clientSecret }),
-              redirect_uri,
-              grant_type: 'authorization_code',
-              ...(scope && { scope }),
-              ...(code_verifier && { code_verifier })
-            },
-            {
-              headers: HEADERS
-            }
-          )
-          .catch(err => err.response)
-          .then(r => r?.data)
-          .then(t => ({ ...t, type: OAuthType.AUTHORIZATION_CODE })))) ||
-      token
-    )
+    if (!code || !tokenPath) return token
+    const exchanged = await post(tokenPath, {
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri,
+      grant_type: 'authorization_code',
+      scope,
+      code_verifier
+    })
+    return (exchanged && { ...exchanged, type: OAuthType.AUTHORIZATION_CODE }) || token
   },
+
   clientCredentialLogin: async config => {
     const { clientId, clientSecret, tokenPath, scope } = config || {}
-    return (
-      (tokenPath &&
-        (await axios
-          .post(
-            tokenPath,
-            {
-              client_id: clientId,
-              client_secret: clientSecret,
-              grant_type: OAuthType.CLIENT_CREDENTIAL,
-              ...(scope ? { scope } : {})
-            },
-            {
-              headers: HEADERS
-            }
-          )
-          .catch(err => err.response)
-          .then(r => r?.data)
-          .then(t => ({ ...t, type: OAuthType.CLIENT_CREDENTIAL })))) ||
-      undefined
-    )
+    if (!tokenPath) return undefined
+    const token = await post(tokenPath, {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: OAuthType.CLIENT_CREDENTIAL,
+      scope
+    })
+    return (token && { ...token, type: OAuthType.CLIENT_CREDENTIAL }) || undefined
   },
+
   resourceOwnerLogin: async (parameters, config) => {
     const { clientId, clientSecret, tokenPath, scope } = config || {}
     const { username, password } = parameters
-    return (
-      (tokenPath &&
-        clientId &&
-        (await axios
-          .post(
-            tokenPath,
-            {
-              client_id: clientId,
-              ...(clientSecret && { client_secret: clientSecret }),
-              grant_type: OAuthType.RESOURCE,
-              ...(scope && { scope }),
-              username,
-              password
-            },
-            {
-              headers: HEADERS
-            }
-          )
-          .catch(err => err.response)
-          .then(r => r?.data)
-          .then(t => ({ ...t, type: OAuthType.RESOURCE })))) ||
-      undefined
-    )
+    if (!tokenPath || !clientId) return undefined
+    const token = await post(tokenPath, {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: OAuthType.RESOURCE,
+      scope,
+      username,
+      password
+    })
+    return (token && { ...token, type: OAuthType.RESOURCE }) || undefined
   },
+
   openIdConfiguration: async config => {
     const { issuerPath, clientId } = config || {}
-    return (
-      (issuerPath &&
-        (await axios
-          .get(`${issuerPath}/.well-known/openid-configuration?client_id=${clientId}`)
-          .catch(err => err.response)
-          .then(r => r?.data))) ||
-      undefined
-    )
+    if (!issuerPath) return undefined
+    const url = new URL(`${issuerPath}/.well-known/openid-configuration`)
+    if (clientId) {
+      url.searchParams.set('client_id', clientId)
+    }
+    return (await request(url.toString(), { headers: { Accept: 'application/json' } })) || undefined
   },
-  userInfo: async (config, http) => {
+
+  userInfo: async (config, request_ = fetch) => {
     const { userPath } = config || {}
-    return (
-      (userPath &&
-        (await (http || axios)
-          .get(userPath)
-          .catch(err => err?.response)
-          .then(r => r?.data))) ||
-      undefined
-    )
+    if (!userPath) return undefined
+    // the instance's authorized fetch by default, so the bearer is attached
+    return (await request(userPath, { headers: { Accept: 'application/json' } }, request_)) || undefined
   },
+
   introspect: async (token, config) => {
     const { introspectionPath, clientId, clientSecret } = config || {}
     const { access_token } = token || {}
+    if (!introspectionPath || !access_token || !clientId) return undefined
     return (
-      (introspectionPath &&
-        access_token &&
-        clientId &&
-        (await axios
-          .post(
-            introspectionPath,
-            {
-              token: access_token
-            },
-            {
-              headers: {
-                ...HEADERS,
-                Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`
-              }
-            }
-          )
-          .catch(err => err.response)
-          .then(r => r?.data))) ||
+      (await post(introspectionPath, { token: access_token }, { Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}` })) ||
       undefined
     )
   }

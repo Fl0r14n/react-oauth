@@ -21,21 +21,22 @@ import ListItemAvatar from '@mui/material/ListItemAvatar'
 import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import TextField from '@mui/material/TextField'
-import { type ReactNode, type SyntheticEvent, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, type SyntheticEvent, useState } from 'react'
 // by package name, never a relative path: this entry is bundled separately, so a relative import
 // inlines a second copy of the core — second module pointer, second React context — and the component
 // goes blind to the instance the app created
 import {
   type AuthorizationCodeParameters,
+  type OAuthFieldError,
   type OAuthParameters,
   OAuthType,
   type ResourceOwnerParameters,
   type UserInfo,
   useAuth,
-  useOAuth
+  useIsAuthorized,
+  useOAuthActions,
+  useOAuthForm
 } from 'react-oauth-oidc'
-
-const MAX_LENGTH = 128
 
 /** Every string the component renders. Pass your own to translate — the library carries no i18n dep. */
 export interface OAuthLabels {
@@ -71,6 +72,11 @@ export type OAuthProps = Partial<ResourceOwnerParameters & AuthorizationCodePara
 
 const interpolate = (template: string, value: unknown) => template.replace('{0}', String(value))
 
+/** `useOAuthForm` reports error codes, not sentences — this is where they become words. A different skin
+ * picks different words without the hook knowing about either. */
+const messageFor = (error: OAuthFieldError, required: string, tooLong: string, maxLength: number) =>
+  (error === 'required' && required) || (error === 'tooLong' && interpolate(tooLong, maxLength)) || ''
+
 const initialsOf = (user?: UserInfo) => {
   const { given_name, family_name } = user || {}
   return `${given_name?.charAt(0) || ''}${family_name?.charAt(0) || ''}` || '?'
@@ -83,53 +89,24 @@ const displayName = (user: UserInfo | undefined, fallback: string) =>
 /** Account menu: the user's row when signed in, otherwise the right login affordance for the grant —
  * one button for the redirect flows, a username/password form for the resource-owner grant.
  *
- * Renders nothing until mounted: the token comes from `localStorage`, so a server render would always
- * disagree with the first client render. */
+ * Server-renders the signed-out view. The token comes from `localStorage`, so that is what the server
+ * has; the hooks report it as signed-out during hydration too, then re-render once React re-reads the
+ * store. No mount gate, and the markup is there from the first paint. */
 export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, password, ...parameters }: OAuthProps) => {
   const t = { ...defaultOAuthLabels, ...labels }
-  const { login, logout, isAuthorized, hasError, errorDescription } = useOAuth()
+  const isAuthorized = useIsAuthorized()
+  const { login, logout } = useOAuthActions()
   const { user } = useAuth()
+  const form = useOAuthForm({ username, password })
 
-  const [mounted, setMounted] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
-  const [visible, setVisible] = useState(false)
-  const [showError, setShowError] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [model, setModel] = useState({ username: username || '', password: password || '' })
-
-  useEffect(() => setMounted(true), [])
-  // both directions: only raising it leaves the alert on screen after the error clears, with nothing
-  // left to show
-  useEffect(() => setShowError(hasError), [hasError])
-
-  const errors = useMemo(
-    () => ({
-      username:
-        (!model.username && t.usernameRequired) || (model.username.length > MAX_LENGTH && interpolate(t.usernameLength, MAX_LENGTH)) || '',
-      password:
-        (!model.password && t.passwordRequired) || (model.password.length > MAX_LENGTH && interpolate(t.passwordLength, MAX_LENGTH)) || ''
-    }),
-    [model, t.usernameRequired, t.usernameLength, t.passwordRequired, t.passwordLength]
-  )
-  const valid = !errors.username && !errors.password
 
   const close = () => setAnchorEl(null)
-
-  const signIn = async (event: SyntheticEvent) => {
-    event.preventDefault()
-    setSubmitted(true)
-    if (!valid) return
-    await login(model)
-    setModel({ username: '', password: '' })
-    setSubmitted(false)
-  }
 
   const signOut = async () => {
     close()
     await logout(logoutRedirectUri)
   }
-
-  if (!mounted) return null
 
   const { responseType } = parameters
   const isRedirectFlow = !!responseType && responseType !== OAuthType.RESOURCE
@@ -174,10 +151,10 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
                 </ListItem>
               </List>
             )
-          ) : showError ? (
+          ) : form.error ? (
             <CardContent>
-              <Alert severity="error" variant="outlined" onClose={() => setShowError(false)}>
-                {errorDescription}
+              <Alert severity="error" variant="outlined" onClose={form.dismissError}>
+                {form.error}
               </Alert>
             </CardContent>
           ) : isRedirectFlow ? (
@@ -187,7 +164,12 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
               </Button>
             </CardActions>
           ) : (
-            <Box component="form" autoComplete="on" onSubmit={signIn} noValidate sx={{ minWidth: 300 }}>
+            <Box
+              component="form"
+              autoComplete="on"
+              onSubmit={(event: SyntheticEvent) => void form.submit(event)}
+              noValidate
+              sx={{ minWidth: 300 }}>
               <CardContent sx={{ pb: 0, display: 'grid', gap: 2 }}>
                 <TextField
                   name="username"
@@ -195,10 +177,13 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
                   required
                   autoComplete="username"
                   label={t.username}
-                  value={model.username}
-                  error={submitted && !!errors.username}
-                  helperText={(submitted && errors.username) || ' '}
-                  onChange={e => setModel(m => ({ ...m, username: e.target.value }))}
+                  value={form.username.value}
+                  error={form.username.showError}
+                  helperText={
+                    (form.username.showError && messageFor(form.username.error, t.usernameRequired, t.usernameLength, form.maxLength)) ||
+                    ' '
+                  }
+                  onChange={e => form.username.onChange(e.target.value)}
                   slotProps={{
                     input: {
                       startAdornment: (
@@ -214,12 +199,15 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
                   size="small"
                   required
                   autoComplete="current-password"
-                  type={visible ? 'text' : 'password'}
+                  type={form.passwordVisible ? 'text' : 'password'}
                   label={t.password}
-                  value={model.password}
-                  error={submitted && !!errors.password}
-                  helperText={(submitted && errors.password) || ' '}
-                  onChange={e => setModel(m => ({ ...m, password: e.target.value }))}
+                  value={form.password.value}
+                  error={form.password.showError}
+                  helperText={
+                    (form.password.showError && messageFor(form.password.error, t.passwordRequired, t.passwordLength, form.maxLength)) ||
+                    ' '
+                  }
+                  onChange={e => form.password.onChange(e.target.value)}
                   slotProps={{
                     input: {
                       startAdornment: (
@@ -233,9 +221,9 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
                             edge="end"
                             size="small"
                             tabIndex={-1}
-                            aria-label={visible ? 'hide password' : 'show password'}
-                            onClick={() => setVisible(v => !v)}>
-                            {visible ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                            aria-label={form.passwordVisible ? 'hide password' : 'show password'}
+                            onClick={form.togglePasswordVisible}>
+                            {form.passwordVisible ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
                           </IconButton>
                         </InputAdornment>
                       )
@@ -244,7 +232,7 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
                 />
               </CardContent>
               <CardActions sx={{ justifyContent: 'flex-end' }}>
-                <Button type="submit" color="inherit" startIcon={<Login />} disabled={submitted && !valid}>
+                <Button type="submit" color="inherit" startIcon={<Login />} disabled={(form.submitted && !form.valid) || form.submitting}>
                   {t.login}
                 </Button>
               </CardActions>

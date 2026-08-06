@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose'
 import type { ConfigContext } from './config'
 import type { OpenIdConfig } from './types'
 
@@ -32,7 +32,12 @@ export const createJwt = ({ config, strictJwt }: Pick<ConfigContext, 'config' | 
     if (jwksUri !== lastUri || strict !== lastStrict) {
       lastUri = jwksUri
       lastStrict = strict
-      jwksSet = jwksUri && strict ? createRemoteJWKSet(new URL(jwksUri)) : undefined
+      // hand jose the platform fetch: left to itself it reaches for `node:http`, which drags a Node
+      // shim into Bun, workers and edge runtimes for what is one GET of a JSON document
+      jwksSet =
+        jwksUri && strict
+          ? createRemoteJWKSet(new URL(jwksUri), { [customFetch]: (url, init) => fetch(url, init as RequestInit) })
+          : undefined
     }
     return jwksSet
   }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { createJwt } from './jwt'
 import { idToken } from './test-utils'
 
@@ -36,15 +37,79 @@ describe('jwt parse (no jwks)', () => {
 })
 
 describe('jwt verify (jwks configured)', () => {
-  it('rejects a token it cannot verify against the jwks', async () => {
-    const strict = createJwt({
-      // port 1 refuses immediately — no DNS, no timeout, no dependency on the machine's network
-      config: () => ({ jwksUri: 'http://127.0.0.1:1/jwks', issuerPath: 'https://idp', clientId: 'c' }) as any,
+  const ISSUER = 'https://idp'
+  const AUDIENCE = 'c'
+
+  // a real JWKS over a real socket, so nothing here depends on the machine's network and nothing
+  // fails at the transport layer — the assertions are about verification, so a connection error
+  // would be the wrong reason to pass
+  let server: ReturnType<typeof Bun.serve>
+  let signed: string
+  let signedByStranger: string
+  let status = 200
+  let keys: object[] = []
+
+  beforeAll(async () => {
+    const mine = await generateKeyPair('RS256')
+    const stranger = await generateKeyPair('RS256')
+    keys = [{ ...(await exportJWK(mine.publicKey)), alg: 'RS256', kid: 'mine' }]
+
+    const sign = (key: CryptoKey, kid: string) =>
+      new SignJWT({ sub: 'abc', name: 'Jane' })
+        .setProtectedHeader({ alg: 'RS256', kid })
+        .setIssuer(ISSUER)
+        .setAudience(AUDIENCE)
+        .setExpirationTime('5m')
+        .sign(key)
+
+    signed = await sign(mine.privateKey, 'mine')
+    signedByStranger = await sign(stranger.privateKey, 'stranger')
+
+    server = Bun.serve({
+      port: 0,
+      fetch: () => (status === 200 ? Response.json({ keys }) : new Response('nope', { status }))
+    })
+  })
+
+  afterAll(() => server.stop(true))
+
+  const strictJwt = () =>
+    createJwt({
+      config: () => ({ jwksUri: `http://localhost:${server.port}/jwks`, issuerPath: ISSUER, clientId: AUDIENCE }) as any,
       strictJwt: () => true
     })
 
-    // the remote set is unreachable, which is exactly the failure path worth pinning: an
-    // unverifiable token must surface as an error, never fall back to the unsigned parse
-    expect(await strict(idToken({ sub: 'abc' }))).toEqual({ error: 'Invalid token' })
+  it('returns the payload for a token the jwks verifies', async () => {
+    status = 200
+    const payload = await strictJwt()(signed)
+
+    expect(payload?.sub).toBe('abc')
+    expect(payload?.name).toBe('Jane')
+    expect(payload?.error).toBeUndefined()
+  })
+
+  it('rejects a token signed by a key the jwks does not carry', async () => {
+    status = 200
+
+    expect(await strictJwt()(signedByStranger)).toEqual({ error: 'Invalid token' })
+  })
+
+  it('rejects rather than falling back to the unsigned parse when the jwks cannot be fetched', async () => {
+    status = 500
+
+    // the important half: a token that *would* parse locally must not be trusted just because the
+    // key set was unavailable
+    expect(await strictJwt()(signed)).toEqual({ error: 'Invalid token' })
+    expect(await strictJwt()(idToken({ sub: 'abc' }))).toEqual({ error: 'Invalid token' })
+  })
+
+  it('rejects a token whose issuer or audience does not match the config', async () => {
+    status = 200
+    const wrongAudience = createJwt({
+      config: () => ({ jwksUri: `http://localhost:${server.port}/jwks`, issuerPath: ISSUER, clientId: 'someone-else' }) as any,
+      strictJwt: () => true
+    })
+
+    expect(await wrongAudience(signed)).toEqual({ error: 'Invalid token' })
   })
 })

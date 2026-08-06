@@ -1,19 +1,18 @@
-import { createStore } from 'zustand/vanilla'
 import type { ConfigContext } from './config'
 import type { HttpContext } from './http'
 import type { Jwt } from './jwt'
-import { watchStore } from './store'
+import { createStore, watchStore } from './store'
 import type { TokenContext } from './token'
 import type { OAuthFunctions, UserInfo } from './types'
 
 export const createUser = (
   { configStore, config }: Pick<ConfigContext, 'configStore' | 'config'>,
   { tokenStore, token, isAuthorized }: Pick<TokenContext, 'tokenStore' | 'token' | 'isAuthorized'>,
-  { http }: Pick<HttpContext, 'http'>,
+  { authorizedFetch }: Pick<HttpContext, 'authorizedFetch'>,
   functions: OAuthFunctions,
   jwt: Jwt
 ) => {
-  const userStore = createStore<{ user?: UserInfo }>(() => ({}))
+  const userStore = createStore<{ user?: UserInfo }>({})
   const user = () => userStore.getState().user
 
   const fromIdToken = async (idToken?: string) => {
@@ -21,34 +20,45 @@ export const createUser = (
       userStore.setState({ user: await jwt(idToken) })
     }
   }
-  const unwatchIdToken = watchStore(tokenStore, () => token()?.id_token, fromIdToken)
-  void fromIdToken(token()?.id_token)
 
   const fetchUser = async () => {
     if (isAuthorized() && (config() as any)?.userPath) {
-      const usr = await functions.userInfo(config(), http)
+      const usr = await functions.userInfo(config(), authorizedFetch)
       if (usr) {
         userStore.setState({ user: usr })
       }
     }
   }
-  const unwatchAuthorized = watchStore(tokenStore, isAuthorized, () => void fetchUser())
-  const unwatchUserPath = watchStore(
-    configStore,
-    () => (config() as any)?.userPath,
-    () => void fetchUser()
-  )
-  // fired eagerly: with a valid stored token and a statically configured userPath both sources are
-  // already truthy at creation and never change — without this the fetch never happens
-  void fetchUser()
+
+  // deferred to start() so constructing an instance is inert — see createOAuth
+  let teardowns: Array<() => void> = []
+
+  const start = () => {
+    if (teardowns.length) return
+    teardowns = [
+      watchStore(tokenStore, () => token()?.id_token, fromIdToken),
+      watchStore(tokenStore, isAuthorized, () => void fetchUser()),
+      watchStore(
+        configStore,
+        () => (config() as any)?.userPath,
+        () => void fetchUser()
+      )
+    ]
+    // fired eagerly: with a valid stored token and a statically configured userPath both sources are
+    // already truthy at start and never change — without this the fetch never happens
+    void fromIdToken(token()?.id_token)
+    void fetchUser()
+  }
 
   return {
     userStore,
     user,
+    start,
     dispose: () => {
-      unwatchIdToken()
-      unwatchAuthorized()
-      unwatchUserPath()
+      for (const teardown of teardowns) {
+        teardown()
+      }
+      teardowns = []
     }
   }
 }

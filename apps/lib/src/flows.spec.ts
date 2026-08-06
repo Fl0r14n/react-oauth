@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createOAuth, installStorage, mockOAuthFunctions as mocked, registerOAuthCleanup } from './test-utils'
 import { type OAuth, type OAuthConfig, OAuthType } from './types'
 
@@ -237,5 +237,122 @@ describe('oauthCallback', () => {
     await oauth.oauthCallback(`https://h/callback#access_token=implicit&id_token=${'header.e30.sig'}`)
 
     expect(oauth.token().error).toBe('Invalid nonce')
+  })
+
+  it('exchanges a given code once even when called concurrently', async () => {
+    // StrictMode double-invokes effects, so both calls start before either resolves
+    functions.authorize.mockResolvedValue({ access_token: 'coded', type: OAuthType.AUTHORIZATION_CODE })
+    const url = 'https://h/callback?code=abc&state=xyz'
+
+    await Promise.all([oauth.oauthCallback(url), oauth.oauthCallback(url)])
+
+    expect(functions.authorize).toHaveBeenCalledTimes(1)
+    expect(oauth.token().access_token).toBe('coded')
+  })
+
+  it('does not re-exchange a code that has already been exchanged', async () => {
+    // a browser Back into the callback URL. Re-exchanging a consumed code does not fail harmlessly:
+    // the IdP answers invalid_grant, which would land in the token and kill a live session
+    functions.authorize.mockResolvedValue({ access_token: 'coded', type: OAuthType.AUTHORIZATION_CODE })
+    const url = 'https://h/callback?code=abc'
+
+    await oauth.oauthCallback(url)
+    await oauth.oauthCallback(url)
+
+    expect(functions.authorize).toHaveBeenCalledTimes(1)
+    expect(oauth.token().access_token).toBe('coded')
+    expect(oauth.hasError()).toBe(false)
+  })
+
+  it('still handles a genuinely different redirect', async () => {
+    functions.authorize.mockResolvedValue({ access_token: 'first', type: OAuthType.AUTHORIZATION_CODE })
+    await oauth.oauthCallback('https://h/callback?code=one')
+
+    functions.authorize.mockResolvedValue({ access_token: 'second', type: OAuthType.AUTHORIZATION_CODE })
+    await oauth.oauthCallback('https://h/callback?code=two')
+
+    expect(functions.authorize).toHaveBeenCalledTimes(2)
+    expect(oauth.token().access_token).toBe('second')
+  })
+
+  it('scopes the dedupe to the instance, so a fresh instance re-runs the same url', async () => {
+    functions.authorize.mockResolvedValue({ access_token: 'coded', type: OAuthType.AUTHORIZATION_CODE })
+    const url = 'https://h/callback?code=abc'
+    await oauth.oauthCallback(url)
+
+    const other = createOAuth({ config: { tokenPath: '/t', clientId: 'c' }, functions })
+    await other.oauthCallback(url)
+
+    expect(functions.authorize).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('redirect: false', () => {
+  let oauth: OAuth
+  let replaced: string[]
+  let restore: () => void
+
+  beforeEach(() => {
+    local.clear()
+    replaced = []
+    const location = globalThis.location as Location & { replace: (url: string) => void }
+    const original = location.replace
+    location.replace = (url: string) => void replaced.push(url)
+    restore = () => {
+      location.replace = original
+    }
+  })
+
+  afterEach(() => restore())
+
+  it('login returns the authorize url without navigating', async () => {
+    oauth = createOAuth({
+      config: { tokenPath: '/t', clientId: 'c', authorizePath: 'https://idp/auth', scope: 'openid', pkce: true } as any,
+      functions: mocked()
+    })
+
+    const url = await oauth.login({ redirectUri: 'https://app/cb', responseType: OAuthType.AUTHORIZATION_CODE }, { redirect: false })
+
+    expect(url).toContain('https://idp/auth?')
+    expect(replaced).toEqual([])
+    // the flow is still armed: without these persisted, the caller's own navigation leads to a
+    // callback that cannot complete
+    expect(oauth.token().code_verifier).toBeTruthy()
+    expect(oauth.token().nonce).toBeTruthy()
+    expect(oauth.token().redirect_uri).toBe('https://app/cb')
+  })
+
+  it('login navigates by default', async () => {
+    oauth = createOAuth({
+      config: { tokenPath: '/t', clientId: 'c', authorizePath: 'https://idp/auth' } as any,
+      functions: mocked()
+    })
+
+    const url = await oauth.login({ redirectUri: 'https://app/cb', responseType: OAuthType.AUTHORIZATION_CODE })
+
+    expect(replaced).toEqual([url!])
+  })
+
+  it('logout returns the end-session url without navigating, and still drops the session', async () => {
+    oauth = createOAuth({
+      config: { tokenPath: '/t', clientId: 'c', logoutPath: 'https://idp/logout' },
+      functions: mocked()
+    })
+    oauth.setToken({ access_token: 'at', id_token: 'idt' })
+
+    const url = await oauth.logout('https://app/', undefined, { redirect: false })
+
+    expect(url).toContain('https://idp/logout?')
+    expect(new URL(url!).searchParams.get('post_logout_redirect_uri')).toBe('https://app/')
+    expect(new URL(url!).searchParams.get('id_token_hint')).toBe('idt')
+    expect(replaced).toEqual([])
+    expect(oauth.token()).toEqual({})
+  })
+
+  it('logout returns undefined when there is nothing to visit', async () => {
+    oauth = createOAuth({ config: { tokenPath: '/t', clientId: 'c' }, functions: mocked() })
+    oauth.setToken({ access_token: 'at' })
+
+    expect(await oauth.logout()).toBeUndefined()
   })
 })

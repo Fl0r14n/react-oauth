@@ -31,6 +31,14 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./core": {
+      "types": "./dist/core.d.mts",
+      "import": "./dist/core.mjs"
+    },
+    "./axios": {
+      "types": "./dist/axios.d.mts",
+      "import": "./dist/axios.mjs"
+    },
     "./component": {
       "types": "./dist/component.d.mts",
       "import": "./dist/component.mjs"
@@ -38,7 +46,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && bun run verify:entries",
+    "verify:entries": "bun run verify-entries.ts",
     "test": "bun test",
     "type-check": "tsc --noEmit",
     "publish": "bun run build && bun publish"
@@ -53,10 +62,12 @@
     "@mui/material": ">=6",
     "axios": "^1",
     "react": ">=18",
-    "react-dom": ">=18",
-    "zustand": "^5"
+    "react-dom": ">=18"
   },
   "peerDependenciesMeta": {
+    "axios": {
+      "optional": true
+    },
     "@emotion/react": {
       "optional": true
     },
@@ -84,7 +95,6 @@
     "react": "latest",
     "react-dom": "latest",
     "tsdown": "latest",
-    "typescript": "latest",
-    "zustand": "latest"
+    "typescript": "latest"
   }
 }

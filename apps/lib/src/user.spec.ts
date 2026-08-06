@@ -31,7 +31,7 @@ describe('user', () => {
 
     await flush()
 
-    expect(userInfo).toHaveBeenCalledWith(oauth.config(), oauth.http)
+    expect(userInfo).toHaveBeenCalledWith(oauth.config(), oauth.fetch)
     expect(oauth.user()).toEqual({ name: 'From Endpoint' })
   })
 

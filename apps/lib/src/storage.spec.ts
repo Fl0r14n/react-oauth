@@ -66,4 +66,36 @@ describe('createStorageStore', () => {
     s.rekey('k')
     expect(s.get()).toEqual({ token: 'keep' })
   })
+
+  it('notifies subscribers on rekey — React has to learn the token changed', () => {
+    local.setItem('site-b', JSON.stringify({ token: 'b' }))
+    const s = createStorageStore<{ token?: string }>('site-a', {})
+    const seen: Array<string | undefined> = []
+    s.store.subscribe(state => seen.push(state.value.token))
+
+    s.rekey('site-b')
+
+    expect(seen).toEqual(['b'])
+  })
+
+  it('persists a set that re-enters during rekey', () => {
+    local.setItem('site-b', JSON.stringify({ token: 'b' }))
+    const s = createStorageStore<{ token?: string }>('site-a', {})
+
+    // token.ts does exactly this: a watcher on the token store reacts to rekey by writing back a
+    // derived field (setExpires). That write lands while rekey's cascade is still running.
+    let reentered = false
+    s.store.subscribe(state => {
+      if (!reentered && state.value.token === 'b') {
+        reentered = true
+        s.set({ token: 'b', derived: 'computed-on-rekey' } as { token?: string })
+      }
+    })
+
+    s.rekey('site-b')
+
+    // suppressing persistence with a mutable flag for the duration of rekey dropped this write
+    expect(JSON.parse(local.getItem('site-b')!)).toEqual({ token: 'b', derived: 'computed-on-rekey' })
+    expect(local.getItem('site-a')).toBeNull()
+  })
 })

@@ -20,8 +20,7 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-// the component renders nothing until mounted, so every case has to let
-// the mount effect flush before querying
+// flushed before querying so the id_token decode and any userinfo fetch have settled
 const mount = async (props: OAuthProps = {}) => {
   const result = render(
     <OAuthProvider oauth={oauth}>
@@ -40,19 +39,29 @@ const openMenu = async () => {
 }
 
 describe('<OAuth>', () => {
-  it('renders nothing on the server pass, so hydration cannot disagree about a stored token', () => {
-    // the token is seeded from localStorage, which the server cannot see: emitting the signed-in
-    // view here would guarantee a hydration mismatch. The mount effect never runs on the server, so
-    // the gate holds — which only `renderToString` can show, since `render()` flushes effects.
-    oauth.setToken({ access_token: 'at', token_type: 'Bearer' })
+  it('server-renders the signed-out view, and a stored token cannot change that', () => {
+    // the token is seeded from localStorage, which the server cannot see. The hooks pass a server
+    // snapshot of an empty token, so this pass is signed-out whatever the store holds — which is what
+    // lets hydration agree without a mount gate. Only `renderToString` shows it: Testing Library's
+    // `render()` flushes effects and React has already re-read the store by the time it returns.
+    const markup = () =>
+      renderToString(
+        <OAuthProvider oauth={oauth}>
+          <OAuthComponent />
+        </OAuthProvider>
+      )
 
-    const html = renderToString(
-      <OAuthProvider oauth={oauth}>
-        <OAuthComponent />
-      </OAuthProvider>
-    )
+    const signedOut = markup()
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer', id_token: idToken({ name: 'Jane' }) })
 
-    expect(html).toBe('')
+    expect(markup()).toBe(signedOut)
+    // the outlined avatar is the signed-out one, and there is no way to sign out of a session the
+    // server does not know about
+    expect(signedOut).toContain('AccountCircleOutlinedIcon')
+    expect(signedOut).not.toContain('AccountCircleIcon')
+    expect(signedOut).not.toContain('Logout')
+    // and it is no longer blank — the account button is in the first paint
+    expect(signedOut).toContain('aria-label="Account"')
   })
 
   it('shows the username/password form for the resource-owner grant', async () => {
