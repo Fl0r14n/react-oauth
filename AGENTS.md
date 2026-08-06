@@ -39,25 +39,36 @@ apps/lib/src
   jwt.ts         id_token parsing and JWKS verification
   flows.ts       login / logout / oauthCallback, PKCE, nonce
   user.ts        user from id_token claims or the userinfo endpoint
-  module.ts      createOAuth + the module-level active pointer
+  module.ts      createOAuth — no module-level state of any kind
+  core.ts        ENTRY: the React-free surface, published as react-oauth-oidc/core
   provider.tsx   <OAuthProvider> and instance resolution
   hooks.ts       the React bindings — everything here subscribes
-  component/     the optional MUI account menu
+  index.ts       ENTRY: the package root — core re-exported + the React bindings, 'use client'
+  component/     ENTRY: the optional MUI account menu, 'use client'
 apps/app         demo app: Vite + React Router + MUI + i18next, SSR via Bun.serve
 ```
 
+Three build entries, three separate builds — see `tsdown.config.ts`. `core` has no React in its graph and
+no directive, so it works in a route handler, a worker or a server component. `index` and `component` are
+`'use client'`, which is exactly why `core` needs an entry of its own.
+
 ## Things that will bite you
 
-**The component entry must import the core by package name.** `src/component/OAuth.tsx` imports from
-`'react-oauth-oidc'`, not `'../hooks'`. It is bundled as a separate entry, so a relative import inlines a
-second copy of the core — and therefore a second React context — and the component goes blind to the
-instance the app created. Since the hooks now throw when context is missing, this fails loudly rather
-than silently, but it still fails. `tsconfig.json` maps the package name back to `src/index.ts` so
-type-check and tests still resolve it. Verify after touching the build:
+**Entries import each other by package name, never relatively.** `hooks.ts` and `provider.tsx` import
+from `'react-oauth-oidc/core'`; `component/OAuth.tsx` imports from `'react-oauth-oidc'`. Each entry is a
+separate build that keeps the others external, so a relative import across that boundary inlines a second
+copy — a second React context, and the component goes blind to the instance the app created. It also
+doubles the bundle. `tsconfig.json` maps both names back to source so type-check and tests still resolve.
+
+This class of mistake is invisible in the source and in the tests. `verify-entries.ts` checks it, and
+`bun run build` runs it:
 
 ```sh
-bun run build && grep -c createOAuth apps/lib/dist/component.mjs   # must be 0
+bun --filter react-oauth-oidc build   # tsdown, then the entry invariants
 ```
+
+It asserts the core imports no React and carries no directive, that `index` and `component` both lead
+with `'use client'`, and that neither has inlined a copy of the core.
 
 **Getters do not re-render.** The instance exposes getters (`oauth.isAuthorized()`) because the core must
 work outside React. Components must go through the hooks instead — a getter read in render happens once

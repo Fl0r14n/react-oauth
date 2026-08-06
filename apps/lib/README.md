@@ -21,6 +21,23 @@ bun add react-oauth-oidc
 Peers: `react`, `react-dom`, `axios`. `@mui/material`, `@mui/icons-material` and `@emotion/*` are
 needed only for the optional `react-oauth-oidc/component` entry.
 
+### Entry points
+
+| import from | you get | notes |
+| --- | --- | --- |
+| `react-oauth-oidc` | everything: the hooks, the provider, and all of `/core` | `'use client'` |
+| `react-oauth-oidc/core` | the protocol layer only — `createOAuth`, the types, the store helpers | no React, no directive |
+| `react-oauth-oidc/component` | the optional MUI account menu | `'use client'`, needs the MUI peers |
+
+The root re-exports the core, so most apps only ever import from `react-oauth-oidc`. Reach for `/core`
+when the importer is not a client component — a Next.js route handler or server component, a worker, a
+CLI, a plain service. It has no React in its import graph and no `'use client'` banner, so it will not
+drag a server module across the client boundary:
+
+```ts
+import { createOAuth, isExpiredToken } from 'react-oauth-oidc/core'
+```
+
 ## How to
 
 ### Configure your oauth client

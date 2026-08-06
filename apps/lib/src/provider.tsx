@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useContext } from 'react'
-import type { OAuth } from './types'
+// by package name — see the note in hooks.ts and AGENTS.md
+import type { OAuth } from 'react-oauth-oidc/core'
 
 const OAuthContext = createContext<OAuth | undefined>(undefined)
 

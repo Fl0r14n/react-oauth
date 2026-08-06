@@ -1,8 +1,20 @@
 import { useSyncExternalStore } from 'react'
+// by package name, not relatively: this entry is bundled with the core kept external, so a relative
+// import would inline a second copy of it. See AGENTS.md.
+import {
+  isExpiredToken,
+  type OAuth,
+  type OAuthConfig,
+  type OAuthParameters,
+  type OAuthStatus,
+  type OAuthToken,
+  type OAuthType,
+  type OAuthTypeConfig,
+  type Subscribable,
+  tokenState,
+  type UserInfo
+} from 'react-oauth-oidc/core'
 import { useOAuthInstance } from './provider'
-import type { Subscribable } from './store'
-import { isExpiredToken, tokenState } from './token'
-import type { OAuth, OAuthConfig, OAuthParameters, OAuthStatus, OAuthToken, OAuthType, OAuthTypeConfig, UserInfo } from './types'
 
 /** Every hook here subscribes. Outside React use the instance's getters instead — a getter is invisible
  * to React, so `oauth.isAuthorized()` read in a component renders once and never updates. */

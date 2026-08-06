@@ -3,9 +3,10 @@
   "compilerOptions": {
     "types": ["bun", "react", "react-dom"],
     "paths": {
-      // the component entry imports the core by package name so the bundler keeps it external;
-      // in-repo (type-check, tests) that name has to resolve back to the source
-      "react-oauth-oidc": ["./src/index.ts"]
+      // entries import each other by package name so the bundler keeps them external and there is one
+      // copy of each at runtime; in-repo (type-check, tests) those names resolve back to the source
+      "react-oauth-oidc": ["./src/index.ts"],
+      "react-oauth-oidc/core": ["./src/core.ts"]
     }
   },
   "include": ["src/**/*"]

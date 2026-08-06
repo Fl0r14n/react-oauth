@@ -10,9 +10,11 @@ Verification for every item:
 bun run check
 bun --filter '*' type-check
 bun --filter react-oauth-oidc test
-bun --filter react-oauth-oidc build
-grep -c createOAuth apps/lib/dist/component.mjs   # must be 0 — see AGENTS.md, the dual-core guard
+bun --filter react-oauth-oidc build   # also runs verify-entries.ts — the entry-boundary invariants
 ```
+
+Worth doing for anything touching SSR or hydration, since the specs cannot see it: `bun run ssr`, then
+`curl -sk https://localhost:3000/` and check the server markup and the log.
 
 ## Done
 
@@ -22,9 +24,6 @@ grep -c createOAuth apps/lib/dist/component.mjs   # must be 0 — see AGENTS.md,
 - **#1 — drop the module singleton, require the provider.** `getActiveOAuth`, `activeOAuth` and
   `aliveInstances` removed; `useOAuthInstance` throws when there is no `<OAuthProvider>`. The dual-core
   build guard in AGENTS.md now greps for `createOAuth`, since `activeOAuth` no longer exists to find.
-
-## In progress — branch `refactor/own-store`
-
 - **#3 — real `getServerSnapshot`, delete the `mounted` flag.** `tokenState()` in `token.ts` is now the
   single pure derivation used by both the instance getters and the hooks; `useStoreValue` takes an
   optional `serverSelector`; the token and user hooks pass a frozen signed-out snapshot; the config store
@@ -35,14 +34,14 @@ grep -c createOAuth apps/lib/dist/component.mjs   # must be 0 — see AGENTS.md,
   markup is byte-identical with and without a stored token, which is the same invariant, but an actual
   hydration run with a seeded `localStorage` token would be worth doing: seed a token, reload, confirm
   no hydration warning in the console and that the avatar switches to the filled icon after hydration.
-- **#6 — `/core` entry + `'use client'`.** Not started. Add `src/core.ts` exporting the React-free
-  surface (`types`, `functions`, `store`, `storage`, `module`), keep `index.ts` as the React entry with a
-  `'use client'` banner via tsdown `outputOptions.banner`, and add `./core` to the package `exports` map.
+- **#6 — `/core` entry + `'use client'`.** `src/core.ts` is the React-free entry, published as
+  `react-oauth-oidc/core`. `index.ts` and `component/` build with a `'use client'` banner. `hooks.ts` and
+  `provider.tsx` import the core by package name so it stays external — `index.mjs` went from 26.4 kB to
+  5.4 kB, with no duplicated core.
 
-  Watch out: if `index.ts` re-exports `./core` inside the same tsdown build, the shared code may land in a
-  chunk that carries no `'use client'` directive. The proven fix is the pattern `component/OAuth.tsx`
-  already uses — import by package name (`react-oauth-oidc/core`) so the core stays a separate module,
-  with a `tsconfig.json` path mapping back to `src/core.ts` for type-check and tests.
+  `verify-entries.ts` runs as part of `bun run build` and asserts the invariants, all of which otherwise
+  fail silently: core imports no React and carries no directive, `index`/`component` lead with
+  `'use client'`, and neither inlined a copy of the core.
 
 ## Open
 
