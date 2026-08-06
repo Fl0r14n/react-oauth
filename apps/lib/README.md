@@ -225,6 +225,39 @@ once signed in, and the flow error when there is one.
 - `labels` — every string it renders, for translation (the library itself carries no i18n dependency)
 - `renderUserInfo` — replaces the default user row with your own, receiving `{ user, logout }`
 
+### Or build your own form
+
+The credentials form's behaviour lives in `useOAuthForm`, which has no opinion about how anything looks —
+the MUI component above is one skin over it. Field errors come back as codes rather than sentences, so
+the hook needs no i18n dependency and you pick the wording:
+
+```tsx
+const SignIn = () => {
+  const form = useOAuthForm()
+
+  return (
+    <form onSubmit={form.submit}>
+      <input value={form.username.value} onChange={e => form.username.onChange(e.target.value)} />
+      {form.username.showError && <span>{form.username.error === 'required' ? 'Required' : 'Too long'}</span>}
+
+      <input
+        type={form.passwordVisible ? 'text' : 'password'}
+        value={form.password.value}
+        onChange={e => form.password.onChange(e.target.value)}
+      />
+      <button type="button" onClick={form.togglePasswordVisible}>eye</button>
+
+      {form.error && <p role="alert">{form.error}</p>}
+      <button type="submit" disabled={form.submitting || (form.submitted && !form.valid)}>Sign in</button>
+    </form>
+  )
+}
+```
+
+`showError` is false until a submit has been attempted, so a pristine form does not shout about its empty
+required fields. `form.error` is the IdP's rejection of the last attempt; `dismissError()` hides it, and
+the next attempt shows it again even if the message is identical.
+
 It server-renders the signed-out view. The token comes from `localStorage`, which the server cannot see,
 so the hooks report signed-out during the server pass *and* during hydration — then re-render once React
 re-reads the store. The account button is in the first paint, and hydration never disagrees.
