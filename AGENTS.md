@@ -50,22 +50,30 @@ apps/app         demo app: Vite + React Router + MUI + i18next, SSR via Bun.serv
 
 **The component entry must import the core by package name.** `src/component/OAuth.tsx` imports from
 `'react-oauth-oidc'`, not `'../hooks'`. It is bundled as a separate entry, so a relative import inlines a
-second copy of the core — a second module pointer and a second React context — and the component goes
-blind to the instance the app created. `tsconfig.json` maps the package name back to `src/index.ts` so
+second copy of the core — and therefore a second React context — and the component goes blind to the
+instance the app created. Since the hooks now throw when context is missing, this fails loudly rather
+than silently, but it still fails. `tsconfig.json` maps the package name back to `src/index.ts` so
 type-check and tests still resolve it. Verify after touching the build:
 
 ```sh
-bun run build && grep -c activeOAuth apps/lib/dist/component.mjs   # must be 0
+bun run build && grep -c createOAuth apps/lib/dist/component.mjs   # must be 0
 ```
 
 **Getters do not re-render.** The instance exposes getters (`oauth.isAuthorized()`) because the core must
 work outside React. Components must go through the hooks instead — a getter read in render happens once
 and never updates. This is why `hooks.ts` subscribes to the stores even where it then calls the getters.
 
-**Specs must dispose their instances.** `createOAuth` counts live instances to detect an ambiguous global
-pointer on the server, and bun runs every spec file in one process — a leaked instance from one file
-trips the ambiguity error in another. Use the tracked factory from `test-utils.ts` and call
-`registerOAuthCleanup()` at the top of the file.
+**There is no ambient instance.** `createOAuth` keeps no module-level pointer, and `useOAuthInstance`
+resolves from `<OAuthProvider>` or throws. That is deliberate: a last-one-wins global cannot be answered
+correctly while two SSR renders are in flight, and every consumer already holds the instance — React via
+the provider, everything else via the value `createOAuth` returned, whose `http` client already carries
+the interceptors. Do not reintroduce a pointer "for convenience".
+
+**Specs should dispose their instances.** Bun runs every spec file in one process, and an instance whose
+config watcher is still live can fire a refresh against another test's mocks. Use the tracked factory
+from `test-utils.ts` and call `registerOAuthCleanup()` at the top of the file. No longer a correctness
+requirement now that nothing is registered globally, but still the difference between a clean run and a
+confusing one.
 
 **The component renders nothing until mounted.** The token is seeded from `localStorage`, which the
 server cannot see, so rendering the signed-in view during the server pass guarantees a hydration

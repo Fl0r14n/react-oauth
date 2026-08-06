@@ -7,29 +7,14 @@ import { createToken, isExpiredToken } from './token'
 import type { OAuth, OAuthConfig } from './types'
 import { createUser } from './user'
 
-// last-one-wins pointer, so non-React code (interceptors, loaders, services) can reach the instance
-let activeOAuth: OAuth | undefined
-
-// created and not disposed — >1 means the pointer is ambiguous
-let aliveInstances = 0
-
-/** The instance for non-React code. On the client the last created one is the deliberate answer; on
- * the server it is only an answer while a single instance is alive, since concurrent renders could
- * otherwise hand out another request's token — so that case throws instead. */
-export const getActiveOAuth = (): OAuth => {
-  if (activeOAuth && aliveInstances > 1 && typeof window === 'undefined') {
-    throw new Error(
-      '[react-oauth-oidc]: ambiguous OAuth instance: multiple instances are alive on the server. Pass the request instance explicitly instead of resolving it globally.'
-    )
-  }
-  if (!activeOAuth) {
-    throw new Error('[react-oauth-oidc]: no active OAuth instance. Call createOAuth() first.')
-  }
-  return activeOAuth
-}
-
 /** One fully isolated instance: own config, token storage, axios instance and watchers. Create one per
- * request on the server and `dispose()` it when the render is done. */
+ * request on the server and `dispose()` it when the render is done.
+ *
+ * There is deliberately no module-level pointer to "the current instance". Every consumer already has
+ * one: React gets it from `<OAuthProvider>`, and non-React code (interceptors, loaders, services) holds
+ * the value this returned — the axios client on it already carries the interceptors. A global pointer
+ * would only add a second source of truth, and one that cannot be answered correctly under concurrent
+ * SSR. */
 export const createOAuth = (cfg?: OAuthConfig): OAuth => {
   const configContext = createConfig(cfg)
   const functions = { ...defaultOAuthFunctions, ...cfg?.functions }
@@ -59,20 +44,11 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
   const { stateStore, state, login, logout, oauthCallback } = flows
   const { userStore, user } = userContext
 
-  let disposed = false
-  aliveInstances++
-
   const oauth: OAuth = {
+    // idempotent: the teardowns are Set deletes, so a double dispose is harmless
     dispose: () => {
-      if (!disposed) {
-        disposed = true
-        aliveInstances--
-      }
       tokenContext.dispose()
       userContext.dispose()
-      if (activeOAuth === oauth) {
-        activeOAuth = undefined
-      }
     },
     configStore,
     oauthConfig,
@@ -108,7 +84,6 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     authorizationInterceptor,
     unauthorizedInterceptor
   }
-  activeOAuth = oauth
   return oauth
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "react-oauth-oidc",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "author": "Fl0r14n <florian.chis@gmail.com>",
   "homepage": "https://github.com/Fl0r14n/react-oauth",
   "description": "A fully OAuth2.1 compliant react library",

@@ -4,8 +4,8 @@ import type { Subscribable } from './store'
 import { isExpiredToken } from './token'
 import type { OAuth, OAuthConfig, OAuthParameters, OAuthStatus, OAuthToken, OAuthType, OAuthTypeConfig, UserInfo } from './types'
 
-/** Every hook here subscribes. Outside React use `getActiveOAuth()` and its getters instead — a getter
- * is invisible to React, so `oauth.isAuthorized()` read in a component renders once and never updates. */
+/** Every hook here subscribes. Outside React use the instance's getters instead — a getter is invisible
+ * to React, so `oauth.isAuthorized()` read in a component renders once and never updates. */
 
 /** The React binding for the stores in `store.ts`, which are deliberately React-free.
  *

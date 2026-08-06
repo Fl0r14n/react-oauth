@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { getActiveOAuth } from './module'
 import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
 import { OAuthType } from './types'
 
@@ -10,29 +9,18 @@ beforeEach(() => {
   local.clear()
 })
 
-describe('getActiveOAuth', () => {
-  it('resolves the last created instance', () => {
-    const oauth = createOAuth({ storageKey: 'a', functions: mockOAuthFunctions() })
-
-    expect(getActiveOAuth()).toBe(oauth)
-  })
-
-  it('throws once every instance is disposed', () => {
-    createOAuth({ storageKey: 'a', functions: mockOAuthFunctions() }).dispose()
-
-    expect(() => getActiveOAuth()).toThrow(/no active OAuth instance/)
-  })
-
-  it('keeps pointing at the surviving instance when another one is disposed', () => {
+describe('createOAuth', () => {
+  it('holds no module-level state — instances are reachable only through the value returned', () => {
     const first = createOAuth({ storageKey: 'a', functions: mockOAuthFunctions() })
     const second = createOAuth({ storageKey: 'b', functions: mockOAuthFunctions() })
 
+    // creating the second must not disturb the first in any way. Under a last-one-wins module pointer
+    // this is where one request started answering with another request's instance.
+    first.setToken({ access_token: 'first', type: OAuthType.RESOURCE })
     second.dispose()
 
-    // the pointer moved to `second` on creation and is cleared by its dispose; `first` is still
-    // alive but is no longer the *active* one — resolving globally must not silently answer with it
-    expect(() => getActiveOAuth()).toThrow(/no active OAuth instance/)
-    expect(first.token()).toEqual({})
+    expect(first.token().access_token).toBe('first')
+    expect(first.isAuthorized()).toBe(true)
   })
 })
 
@@ -68,13 +56,14 @@ describe('instance isolation', () => {
     expect(oauth.token().access_token).toBe('still-settable')
   })
 
-  it('dispose is idempotent, so a double teardown cannot corrupt the alive count', () => {
+  it('dispose is idempotent', () => {
     const oauth = createOAuth({ storageKey: 'twice', functions: mockOAuthFunctions() })
 
     oauth.dispose()
     oauth.dispose()
 
-    const next = createOAuth({ storageKey: 'next', functions: mockOAuthFunctions() })
-    expect(getActiveOAuth()).toBe(next)
+    // the watchers are gone, but the stores still answer — nothing threw on the second teardown
+    oauth.setToken({ access_token: 'after-double-dispose' })
+    expect(oauth.token().access_token).toBe('after-double-dispose')
   })
 })

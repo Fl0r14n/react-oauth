@@ -98,16 +98,21 @@ const Profile = () => {
 | `useOAuthFunctions()` | the protocol layer, with your overrides applied |
 
 Every hook subscribes and re-renders. **Outside React** — axios interceptors, route loaders, plain
-services — use `getActiveOAuth()` or the instance `createOAuth()` returned, and call its getters:
+services — hold on to the instance `createOAuth()` returned and call its getters:
 
 ```ts
-import { getActiveOAuth } from 'react-oauth-oidc'
+// oauth.ts — your bootstrap owns the instance, and hands the same one to <OAuthProvider>
+export const oauth = createOAuth({ config: { /* ... */ } })
 
-const { isAuthorized, accessToken, token } = getActiveOAuth()
-if (isAuthorized()) {
+// anywhere else
+if (oauth.isAuthorized()) {
   /* ... */
 }
 ```
+
+There is no `getActiveOAuth()` and no ambient "current instance". Everything that needs one already has
+it: React reads it from the provider, and your own modules import the value you exported. The instance's
+`http` client already carries both interceptors, so the common case needs no wiring at all.
 
 The getters are invisible to React, which is exactly why components must not use them — `oauth.isAuthorized()`
 in a component renders once and never updates.
@@ -116,9 +121,9 @@ To react to changes outside React, subscribe to the instance's stores with `watc
 when the *selected* value changes:
 
 ```ts
-import { getActiveOAuth, watchStore } from 'react-oauth-oidc'
+import { watchStore } from 'react-oauth-oidc'
+import { oauth } from './oauth'
 
-const oauth = getActiveOAuth()
 const unwatch = watchStore(oauth.tokenStore, state => state.value.access_token, accessToken => {
   /* ... */
 })
@@ -209,9 +214,9 @@ export const render = async (url: string) => {
 }
 ```
 
-`<OAuthProvider>` is optional on the client, where the module pointer answers just as well. It is
-**required** for concurrent SSR: `getActiveOAuth()` throws on the server while more than one instance is
-alive, rather than risk handing one request another request's token.
+`<OAuthProvider>` is required — the hooks resolve their instance from context and nothing else, and they
+throw when it is missing. That is what makes concurrent SSR safe by construction: with no ambient
+pointer, there is nothing that could hand one request another request's token.
 
 `oauthCallback()` no-ops on the server: the `code_verifier` lives in the browser's storage, and a
 server-side exchange without it would still burn the single-use authorization code at the IdP — the
