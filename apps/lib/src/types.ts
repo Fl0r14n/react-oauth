@@ -49,7 +49,9 @@ export type AuthorizationCodeParameters = {
   accessType?: 'online' | 'offline'
   prompt?: 'none' | 'consent' | 'login' | 'select_account'
   redirectUri: string
-  responseType: OAuthType.IMPLICIT | OAuthType.AUTHORIZATION_CODE | string
+  // `string & {}` keeps the two real options in autocomplete while still accepting anything an IdP
+  // happens to want
+  responseType: typeof OAuthType.IMPLICIT | typeof OAuthType.AUTHORIZATION_CODE | (string & {})
   state?: string
 }
 
@@ -63,24 +65,36 @@ export type OAuthTypeConfig =
   | ResourceOwnerConfig
   | ClientCredentialConfig
 
-export type OAuthConfig = {
+/** `TExtra` instead of an `[x: string]: any` index signature: the index signature turned every typo into
+ * a valid config and erased autocomplete. Carry your own fields by naming them — `OAuthConfig<{ tenant:
+ * string }>` — which also documents them. */
+export type OAuthConfig<TExtra = unknown> = {
   config?: Partial<OAuthTypeConfig>
   storageKey?: string
   ignorePaths?: RegExp[]
   strictJwt?: boolean
   functions?: Partial<OAuthFunctions>
+} & TExtra
 
-  [x: string]: any
-}
+/** `as const` objects rather than TS `enum`s: they erase to plain values (so a runtime that only strips
+ * types can run the source), tree-shake, and do not force a value import just to name a type.
+ * `OAuthType.RESOURCE` still works; the difference is that `OAuthType` in a type position is now the
+ * union of the values. */
+export const OAuthType = {
+  RESOURCE: 'password',
+  AUTHORIZATION_CODE: 'code',
+  IMPLICIT: 'token',
+  CLIENT_CREDENTIAL: 'client_credentials'
+} as const
 
-export enum OAuthType {
-  RESOURCE = 'password',
-  AUTHORIZATION_CODE = 'code',
-  IMPLICIT = 'token',
-  CLIENT_CREDENTIAL = 'client_credentials'
-}
+export type OAuthType = (typeof OAuthType)[keyof typeof OAuthType]
 
-export type OAuthToken = {
+/** The token as persisted, which is the IdP's response plus the few fields this library adds to carry a
+ * flow across a redirect (`code_verifier`, `nonce`, `redirect_uri`, and the computed `expires`).
+ *
+ * Provider-specific claims go in `TExtra` — `OAuthToken<{ id_token_expires_in: number }>` — rather than
+ * through an `any` index signature that silently accepted misspellings of the real fields. */
+export type OAuthToken<TExtra = unknown> = {
   id_token?: string
   access_token?: string
   refresh_token?: string
@@ -94,17 +108,20 @@ export type OAuthToken = {
   code_verifier?: string
   nonce?: string
   type?: OAuthType
+  /** absolute ms, computed from `expires_in` on first sight */
   expires?: number
   code?: string
+  /** echoed back into the token exchange, which has to match the authorize request */
+  redirect_uri?: string
+} & TExtra
 
-  [x: string]: any
-}
+export const OAuthStatus = {
+  NOT_AUTHORIZED: 'NOT_AUTHORIZED',
+  AUTHORIZED: 'AUTHORIZED',
+  DENIED: 'DENIED'
+} as const
 
-export enum OAuthStatus {
-  NOT_AUTHORIZED = 'NOT_AUTHORIZED',
-  AUTHORIZED = 'AUTHORIZED',
-  DENIED = 'DENIED'
-}
+export type OAuthStatus = (typeof OAuthStatus)[keyof typeof OAuthStatus]
 
 export type OpenIdConfiguration = {
   issuer?: string
@@ -119,7 +136,10 @@ export type OpenIdConfiguration = {
   code_challenge_methods_supported?: string[]
 }
 
-export type UserInfo = {
+/** The standard OIDC claims. Anything your IdP adds goes in `TClaims` —
+ * `UserInfo<{ groups: string[] }>` — so those claims are typed at the point of use instead of being
+ * `any` everywhere. */
+export type UserInfo<TClaims = unknown> = {
   email?: string
   email_verified?: boolean
   family_name?: string
@@ -130,9 +150,7 @@ export type UserInfo = {
   address?: object
   picture?: string
   locale?: string
-
-  [x: string]: any
-}
+} & TClaims
 
 export type IntrospectInfo = UserInfo & {
   active: boolean
