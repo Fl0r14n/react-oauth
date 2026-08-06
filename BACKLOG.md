@@ -1,13 +1,12 @@
 # Backlog
 
-Architecture items from the React-idiom review of `apps/lib`. Each is independent unless a dependency is
-noted. Written to survive across sessions — a fresh session should be able to execute any item from this
-file without re-deriving the reasoning.
+Architecture items from the React-idiom review of `apps/lib`. All of them are done — this file is kept as
+the record of what changed and why, plus the few things deliberately left alone.
 
-Verification for every item:
+Verification for any future item:
 
 ```sh
-bun run check
+bun run check                          # do not pipe this — the exit code is what matters
 bun --filter '*' type-check
 bun --filter react-oauth-oidc test
 bun --filter react-oauth-oidc build   # also runs verify-entries.ts — the entry-boundary invariants
@@ -18,118 +17,52 @@ Worth doing for anything touching SSR or hydration, since the specs cannot see i
 
 ## Done
 
-- **Own the store layer, drop the zustand peer dep.** Commits `3820e74`, `e5eed56`, `5fda991`, `0347889`.
-  Also fixed a real bug: persistence lived in a store subscriber, so a write re-entering during
-  `rekey`'s notification cascade was silently dropped.
+- **Own the store layer, drop the zustand peer dep.** Also fixed a real bug: persistence lived in a store
+  subscriber, so a write re-entering during `rekey`'s notification cascade was silently dropped.
 - **#1 — drop the module singleton, require the provider.** `getActiveOAuth`, `activeOAuth` and
-  `aliveInstances` removed; `useOAuthInstance` throws when there is no `<OAuthProvider>`. The dual-core
-  build guard in AGENTS.md now greps for `createOAuth`, since `activeOAuth` no longer exists to find.
-- **#3 — real `getServerSnapshot`, delete the `mounted` flag.** `tokenState()` in `token.ts` is now the
-  single pure derivation used by both the instance getters and the hooks; `useStoreValue` takes an
-  optional `serverSelector`; the token and user hooks pass a frozen signed-out snapshot; the config store
-  deliberately does not. The `mounted` useState/useEffect gate is gone from `component/OAuth.tsx`, so the
-  account button is server-rendered.
+  `aliveInstances` removed; `useOAuthInstance` throws when there is no `<OAuthProvider>`.
+- **#2 — getters out of the ergonomic path.** `useAuth()` no longer returns the instance;
+  `useOAuthInstance()` is the explicit ask. The hooks derive from `tokenState(snapshot)` rather than
+  calling getters during render, so the trap is gone from the paths people actually use.
+- **#3 — real `getServerSnapshot`, delete the `mounted` flag.** `tokenState()` is the single pure
+  derivation shared by the instance getters and the hooks; `useStoreValue` takes an optional
+  `serverSelector`; the token and user hooks pass a frozen signed-out snapshot, the config store
+  deliberately does not.
+- **#4 — fine-grained hooks.** `useIsAuthorized`, `useOAuthStatus`, `useAccessToken`, `useOAuthError`,
+  `useOAuthSelector`, `useOAuthActions`. The spec pins the actual claim: `useIsAuthorized` does not
+  re-render across three PKCE writes and `useOAuth` does, in the same file, so the contrast is the test.
+- **#5 — inert construction.** `createOAuth` observes nothing and hits no network until `start()`, called
+  for you unless `autoStart: false`. `start()` reconciles before subscribing, is idempotent, and re-arms a
+  disposed instance.
+- **#6 — `/core` entry + `'use client'`.** Four entries now (`core`, root, `axios`, `component`).
+  `verify-entries.ts` runs in `bun run build` and asserts the invariants, all of which otherwise fail
+  silently.
+- **#7 — `oauthCallback` is idempotent per redirect.** Keyed by the redirect's parameters and retained
+  rather than cleared on settle, so a browser Back into the callback URL cannot re-exchange a consumed
+  code. The `useRef` guard is gone from the README recipe and the demo app.
+- **#8 — `login()`/`logout()` take `{ redirect: false }`** and return the URL for callers that own
+  navigation. `logout()` clears the local session either way.
+- **#9 — fetch-based core, axios optional.** `oauth.fetch` and `oauth.authHeaders` replace `oauth.http`
+  and the two interceptors; `react-oauth-oidc/axios` keeps them for apps that want them and is the only
+  file importing axios. `defaultOAuthFunctions` gained its first spec, against a real local server.
+- **#10 — `useOAuthForm`.** The credentials form's behaviour, i18n-free (error codes, not sentences), with
+  the MUI component as one skin over it.
+- **#11 — generic claim types, `as const` over `enum`.** `[x: string]: any` gone from `OAuthConfig`,
+  `OAuthToken` and `UserInfo`; extras are a type parameter. `types.spec.ts` pins the tightening with
+  `@ts-expect-error`, which fails the build if the index signature ever comes back.
+- **#12 — `useOAuthToken()` returns `[token, setToken]`.**
+- **jose/fetch under Bun.** happy-dom replaced global `fetch` with a `node:http`-based implementation that
+  mis-parses `Bun.serve` responses, which was the real source of the `ECONNREFUSED` noise on every test
+  run. `test-setup.ts` restores Bun's native fetch; `jwt.ts` hands jose the platform fetch via its
+  `customFetch` option. The JWKS suite then gained the case it never had: strict verification succeeding.
 
-  Not verified in a real browser — the Chrome tooling was unavailable. The spec asserts the server
-  markup is byte-identical with and without a stored token, which is the same invariant, but an actual
-  hydration run with a seeded `localStorage` token would be worth doing: seed a token, reload, confirm
-  no hydration warning in the console and that the avatar switches to the filled icon after hydration.
-- **#6 — `/core` entry + `'use client'`.** `src/core.ts` is the React-free entry, published as
-  `react-oauth-oidc/core`. `index.ts` and `component/` build with a `'use client'` banner. `hooks.ts` and
-  `provider.tsx` import the core by package name so it stays external — `index.mjs` went from 26.4 kB to
-  5.4 kB, with no duplicated core.
+## Not done, deliberately
 
-  `verify-entries.ts` runs as part of `bun run build` and asserts the invariants, all of which otherwise
-  fail silently: core imports no React and carries no directive, `index`/`component` lead with
-  `'use client'`, and neither inlined a copy of the core.
+### The OAuth 2.1 wording in the README
 
-## Open
-
-### #2 — Getters leak into the React surface
-
-`useAuth()` returns the whole `oauth` instance, so a component can reach `oauth.isAuthorized()` — a
-getter read in render happens once and never updates. The README needs a paragraph warning about this,
-which means the API has a trap built into it.
-
-Fix: split the type. `OAuthCore` (getters, for non-React consumers) versus what the hooks hand out. Drop
-`oauth` from `useAuth`'s return. If it has to stay, rename the getters `peekToken()` / `readSnapshot()`
-so misuse reads as wrong at the call site. Partly addressed already — the pure derivations extracted for
-#3 mean the hooks no longer call getters during render.
-
-### #4 — `useOAuth()` is a mega-hook that subscribes to whole objects
-
-`useStoreValue(tokenStore, s => s.value)` re-renders on *every* token write — the `code_verifier` stash,
-the `setExpires` bump, the nonce. A component showing only an avatar re-renders during PKCE setup. It
-also returns a fresh 15-field object each render, so consumer `memo` never holds.
-
-Fix: fine-grained hooks plus a selector escape hatch, and split state from actions.
-
-```ts
-export const useOAuthSelector = <T>(selector: (o: OAuth) => T): T
-export const useIsAuthorized = () => ...   // boolean, identity-stable
-export const useOAuthActions = () => ...   // stable object, zero subscriptions
-```
-
-A component that only calls `login` should never re-render on a token change. Keep `useOAuth()` as the
-convenience aggregate; stop it being the only door.
-
-### #5 — `createOAuth()` is not inert
-
-Construction attaches watchers, calls `revalidate()`, fires `fetchUser()`, and can hit the network. So
-building an instance at module scope has side effects.
-
-Fix: `createOAuth()` builds, `oauth.start()` activates — or accept `{ autoStart: false }`. Makes the
-SSR-per-request story and the specs honest, and matches how React treats subscription lifecycles.
-
-### #7 — `oauthCallback` pushes idempotence onto the user
-
-The README's callback-page recipe needs a `useRef` guard because StrictMode double-invokes effects and an
-authorization code is single-use. `token.ts` already solves this shape with its `inFlight` promise.
-
-Fix: dedupe inside `oauthCallback`, keyed by `code`. Deletes the ref from every consumer's callback page.
-
-### #8 — `login()` both returns a URL and navigates
-
-`flows.ts` calls `globalThis.location?.replace(url)` *and* returns the url. Impure, and unusable with
-React Router or Next's `redirect()`.
-
-Fix: `login(params, { redirect: false })`, or always return the url and expose navigation separately.
-
-### #9 — axios as a peer dependency
-
-Interceptors are the Angular idiom; the current React default is `fetch`.
-
-Fix: core exposes `getAuthHeaders()` / `authorizedFetch`; ship axios as a `react-oauth-oidc/axios`
-adapter. Drops a required peer for most consumers. Touches `functions.ts` (every network call) and
-`http.ts`.
-
-### #10 — the MUI component ships in the same package
-
-Headless is the current idiom, and the MUI peers exist only for this one entry.
-
-Fix: `useOAuthForm()` returning field state, validation and submit; move the MUI skin to a sibling
-package or keep it as a reference implementation.
-
-### #11 — Type surface
-
-`[x: string]: any` on `OAuthConfig`, `OAuthToken` and `UserInfo` (`types.ts`) kills autocomplete and lets
-typos through. Fix with generics: `UserInfo<TClaims = {}>`, `OAuthToken<TExtra = {}>`.
-
-Separately, `OAuthType` and `OAuthStatus` are TS `enum`s. `as const` objects are erasable, tree-shake
-better, and do not force a value import. Low priority, high polish.
-
-### #12 — Naming
-
-`useOAuthToken()` returns `{ value, set }`, which is a Vue ref. React reads `[token, setToken]`, or two
-hooks.
-
-## Not from the review
-
-### `jwt.spec.ts` makes a real network call
-
-Every `bun test` run prints an `ECONNREFUSED` stack — a spec reaches a real JWKS URL. Tests pass anyway,
-so it is noise rather than failure, but it hides genuine errors in the output. Mock `createRemoteJWKSet`
-or point `jwksUri` at a local fixture.
+Reviewed and kept as-is: the library supports the implicit and resource-owner grants, and the README says
+so. (For the record, the 2.1 draft *omits* both rather than deprecating them, but supporting them is a
+defensible pragmatic choice and the docs are not misleading about what is on offer.)
 
 ### `bun.lock` has drifted from the manifests
 
@@ -137,11 +70,16 @@ or point `jwksUri` at a local fixture.
 history — so the lockfile has not been recording at least some workspace deps. Moot for zustand now that
 it is gone, but worth understanding before trusting the lockfile for a release.
 
-### README claims OAuth 2.1 compliance while shipping the two grants 2.1 removes
+## Never verified in a browser
 
-`apps/lib/README.md` opens with "fully OAuth 2.1 compliant" and then lists all four grants. OAuth 2.1
-removes the implicit and resource-owner-password grants. Supporting them is a defensible pragmatic
-choice — IdPs still serve them — but the claim contradicts itself.
+Nothing in this branch was checked in a real browser — the Chrome tooling was unavailable throughout. The
+specs and the demo app's SSR response cover a lot, but two things would be worth a manual pass:
 
-Suggested wording: "OAuth 2.1 by default (authorization code + PKCE); the legacy implicit and password
-grants are still supported."
+- **Hydration with a stored token.** Seed `localStorage` with a token, reload, and confirm there is no
+  hydration warning in the console and that the avatar switches to the filled icon after hydration. The
+  spec asserts the server markup is byte-identical with and without a stored token, which is the same
+  invariant, but it is not the same as watching React hydrate.
+- **A real IdP round trip.** `apps/app/.env` has no issuer configured, so no login flow — authorization
+  code with PKCE, the callback exchange, refresh, and hosted logout — has been run against a live
+  provider since these changes. Every one of them is covered by specs against a local server, which is
+  not the same thing.
