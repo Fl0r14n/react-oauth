@@ -1,5 +1,4 @@
-import { createStore } from 'zustand/vanilla'
-import type { Subscribable } from './store'
+import { createStore, type Subscribable } from './store'
 
 const read = (key: string) => {
   const value = globalThis.localStorage?.getItem(key)
@@ -29,7 +28,7 @@ export const createStorageStore = <T>(initialKey: string, initial: T, map?: (v: 
 
   let key = initialKey
   let persisting = true
-  const store = createStore<{ value: T }>(() => ({ value: seed(initialKey) }))
+  const store = createStore<{ value: T }>({ value: seed(initialKey) })
   store.subscribe(state => {
     if (persisting) {
       write(key, state.value)

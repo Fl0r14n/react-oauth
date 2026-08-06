@@ -53,8 +53,7 @@
     "@mui/material": ">=6",
     "axios": "^1",
     "react": ">=18",
-    "react-dom": ">=18",
-    "zustand": "^5"
+    "react-dom": ">=18"
   },
   "peerDependenciesMeta": {
     "@emotion/react": {
@@ -84,7 +83,6 @@
     "react": "latest",
     "react-dom": "latest",
     "tsdown": "latest",
-    "typescript": "latest",
-    "zustand": "latest"
+    "typescript": "latest"
   }
 }

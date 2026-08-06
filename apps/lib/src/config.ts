@@ -1,15 +1,15 @@
-import { createStore } from 'zustand/vanilla'
+import { createStore } from './store'
 import type { OAuthConfig, OAuthTypeConfig } from './types'
 
 export const createConfig = (cfg?: OAuthConfig) => {
-  const configStore = createStore<{ oauthConfig: OAuthConfig }>(() => ({
+  const configStore = createStore<{ oauthConfig: OAuthConfig }>({
     oauthConfig: {
       storageKey: 'token',
       ignorePaths: [],
       strictJwt: true,
       ...cfg
     }
-  }))
+  })
 
   const oauthConfig = () => configStore.getState().oauthConfig
   const setOAuthConfig = (patch: Partial<OAuthConfig>) => configStore.setState({ oauthConfig: { ...oauthConfig(), ...patch } })

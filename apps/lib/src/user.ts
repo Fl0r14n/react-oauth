@@ -1,8 +1,7 @@
-import { createStore } from 'zustand/vanilla'
 import type { ConfigContext } from './config'
 import type { HttpContext } from './http'
 import type { Jwt } from './jwt'
-import { watchStore } from './store'
+import { createStore, watchStore } from './store'
 import type { TokenContext } from './token'
 import type { OAuthFunctions, UserInfo } from './types'
 
@@ -13,7 +12,7 @@ export const createUser = (
   functions: OAuthFunctions,
   jwt: Jwt
 ) => {
-  const userStore = createStore<{ user?: UserInfo }>(() => ({}))
+  const userStore = createStore<{ user?: UserInfo }>({})
   const user = () => userStore.getState().user
 
   const fromIdToken = async (idToken?: string) => {

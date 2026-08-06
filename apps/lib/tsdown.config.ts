@@ -7,7 +7,7 @@ export default defineConfig([
     entry: ['src/index.ts'],
     outDir: 'dist',
     format: 'esm',
-    deps: { neverBundle: ['react', 'react-dom', 'axios', 'zustand', /^zustand\//] },
+    deps: { neverBundle: ['react', 'react-dom', 'axios'] },
     dts: true,
     clean: true
   },
@@ -16,7 +16,7 @@ export default defineConfig([
     outDir: 'dist',
     format: 'esm',
     deps: {
-      neverBundle: ['react-oauth-oidc', 'react', 'react-dom', 'axios', 'zustand', /^zustand\//, '@mui/material', /^@mui\//, /^@emotion\//]
+      neverBundle: ['react-oauth-oidc', 'react', 'react-dom', 'axios', '@mui/material', /^@mui\//, /^@emotion\//]
     },
     dts: true,
     clean: false

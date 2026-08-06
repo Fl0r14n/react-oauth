@@ -1,6 +1,6 @@
-import { createStore } from 'zustand/vanilla'
 import type { ConfigContext } from './config'
 import type { Jwt } from './jwt'
+import { createStore } from './store'
 import type { TokenContext } from './token'
 import {
   type AuthorizationCodeParameters,
@@ -44,7 +44,7 @@ export const createFlows = (
   functions: OAuthFunctions,
   jwt: Jwt
 ) => {
-  const stateStore = createStore<{ state?: string }>(() => ({}))
+  const stateStore = createStore<{ state?: string }>({})
   const state = () => stateStore.getState().state
   const setState = (value?: string) => stateStore.setState({ state: value })
 

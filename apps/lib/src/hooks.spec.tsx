@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { useOAuth, useOAuthConfig, useOAuthHttp, useOAuthToken, useOAuthUser } from './hooks'
+import { renderToString } from 'react-dom/server'
+import { useOAuth, useOAuthConfig, useOAuthHttp, useOAuthToken, useOAuthUser, useStoreValue } from './hooks'
 import { OAuthProvider } from './provider'
+import { createStore } from './store'
 import { createOAuth, flush, idToken, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
 import { type OAuth, OAuthStatus, OAuthType, type ResourceOwnerConfig } from './types'
 
@@ -111,5 +113,39 @@ describe('useOAuthConfig / useOAuthHttp', () => {
     expect(screen.getByTestId('k').textContent).toBe('tenant.token')
     expect(http).toBe(oauth.http)
     cleanup()
+  })
+})
+
+describe('useStoreValue', () => {
+  it('re-renders on a store write and ignores unrelated ones', () => {
+    const store = createStore({ a: 1, b: 1 })
+    let renders = 0
+    const Probe = () => {
+      renders++
+      return <span data-testid="a">{useStoreValue(store, state => state.a)}</span>
+    }
+    render(<Probe />)
+    expect(screen.getByTestId('a').textContent).toBe('1')
+    const baseline = renders
+
+    act(() => store.setState({ a: 2, b: 1 }))
+    expect(screen.getByTestId('a').textContent).toBe('2')
+
+    // the selected value is unchanged, so useSyncExternalStore bails out of re-rendering
+    act(() => store.setState({ a: 2, b: 9 }))
+    expect(renders).toBe(baseline + 1)
+    cleanup()
+  })
+
+  it('renders the current state on the server, not the state at store creation', () => {
+    const store = createStore({ a: 'initial' })
+    const Probe = () => <span>{useStoreValue(store, state => state.a)}</span>
+
+    // stands in for a token restored from storage or a config filled in by discovery — written after
+    // the store was built but before renderToString. Passing a creation-time getServerSnapshot, which
+    // is what zustand's own useStore does, would render 'initial' here.
+    store.setState({ a: 'written after creation' })
+
+    expect(renderToString(<Probe />)).toContain('written after creation')
   })
 })

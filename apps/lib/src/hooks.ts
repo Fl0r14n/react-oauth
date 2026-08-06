@@ -1,10 +1,24 @@
+import { useSyncExternalStore } from 'react'
 import { useOAuthInstance } from './provider'
-import { useStoreValue } from './store'
+import type { Subscribable } from './store'
 import { isExpiredToken } from './token'
 import type { OAuth, OAuthConfig, OAuthParameters, OAuthStatus, OAuthToken, OAuthType, OAuthTypeConfig, UserInfo } from './types'
 
 /** Every hook here subscribes. Outside React use `getActiveOAuth()` and its getters instead — a getter
  * is invisible to React, so `oauth.isAuthorized()` read in a component renders once and never updates. */
+
+/** The React binding for the stores in `store.ts`, which are deliberately React-free.
+ *
+ * `getServerSnapshot` is the same function as `getSnapshot` on purpose. Handing `useSyncExternalStore`
+ * a creation-time snapshot instead — which is what zustand's own `useStore` does — makes anything
+ * written after the store was built (a restored token, a discovered config) invisible to
+ * `renderToString`.
+ *
+ * `selector` must return a stable reference for unchanged state, or this re-renders forever. */
+export const useStoreValue = <S, T>(store: Subscribable<S>, selector: (state: S) => T): T => {
+  const snapshot = () => selector(store.getState())
+  return useSyncExternalStore(store.subscribe, snapshot, snapshot)
+}
 
 export const useOAuthToken = () => {
   const { tokenStore, setToken } = useOAuthInstance()
