@@ -156,7 +156,9 @@ export const createToken = (
     checkToken,
     start,
     dispose: () => {
-      teardowns.forEach(teardown => teardown())
+      for (const teardown of teardowns) {
+        teardown()
+      }
       teardowns = []
     }
   }
