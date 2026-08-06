@@ -83,21 +83,20 @@ const displayName = (user: UserInfo | undefined, fallback: string) =>
 /** Account menu: the user's row when signed in, otherwise the right login affordance for the grant —
  * one button for the redirect flows, a username/password form for the resource-owner grant.
  *
- * Renders nothing until mounted: the token comes from `localStorage`, so a server render would always
- * disagree with the first client render. */
+ * Server-renders the signed-out view. The token comes from `localStorage`, so that is what the server
+ * has; the hooks report it as signed-out during hydration too, then re-render once React re-reads the
+ * store. No mount gate, and the markup is there from the first paint. */
 export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, password, ...parameters }: OAuthProps) => {
   const t = { ...defaultOAuthLabels, ...labels }
   const { login, logout, isAuthorized, hasError, errorDescription } = useOAuth()
   const { user } = useAuth()
 
-  const [mounted, setMounted] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [visible, setVisible] = useState(false)
   const [showError, setShowError] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [model, setModel] = useState({ username: username || '', password: password || '' })
 
-  useEffect(() => setMounted(true), [])
   // both directions: only raising it leaves the alert on screen after the error clears, with nothing
   // left to show
   useEffect(() => setShowError(hasError), [hasError])
@@ -128,8 +127,6 @@ export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, pas
     close()
     await logout(logoutRedirectUri)
   }
-
-  if (!mounted) return null
 
   const { responseType } = parameters
   const isRedirectFlow = !!responseType && responseType !== OAuthType.RESOURCE

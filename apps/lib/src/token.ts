@@ -1,9 +1,41 @@
 import type { ConfigContext } from './config'
 import { createStorageStore } from './storage'
 import { watchStore } from './store'
-import { type OAuthFunctions, OAuthStatus, type OAuthToken, type OpenIdConfig } from './types'
+import { type OAuthFunctions, OAuthStatus, type OAuthToken, type OAuthType, type OpenIdConfig } from './types'
 
 export const isExpiredToken = (token?: OAuthToken) => (token?.expires && Date.now() > token.expires) || false
+
+/** Everything derivable from a token, with no store and no instance involved.
+ *
+ * Pure on purpose: the instance getters and the React hooks are two different ways to reach the same
+ * derivation, and they must not drift. The hooks in particular cannot call the getters — a getter reads
+ * whatever the store holds *now*, which during hydration is the token restored from `localStorage`,
+ * not the empty one the server rendered. Applying this to a subscribed snapshot keeps the two passes
+ * agreeing. */
+export interface TokenState {
+  type: OAuthType | undefined
+  accessToken: string | undefined
+  status: OAuthStatus
+  isAuthorized: boolean
+  error: string | undefined
+  hasError: boolean
+  errorDescription: string | undefined
+}
+
+export const tokenState = (token?: OAuthToken): TokenState => {
+  const { token_type, access_token, error, error_description, type } = token || {}
+  const status =
+    (error && OAuthStatus.DENIED) || (access_token && !isExpiredToken(token) && OAuthStatus.AUTHORIZED) || OAuthStatus.NOT_AUTHORIZED
+  return {
+    type,
+    accessToken: (token_type && access_token && `${token_type} ${access_token}`) || undefined,
+    status,
+    isAuthorized: status === OAuthStatus.AUTHORIZED,
+    error,
+    hasError: !!error,
+    errorDescription: error_description
+  }
+}
 
 export const createToken = (
   { configStore, config, setConfig, storageKey }: Pick<ConfigContext, 'configStore' | 'config' | 'setConfig' | 'storageKey'>,
@@ -16,26 +48,15 @@ export const createToken = (
   // the storage key is runtime-mutable: a multi-tenant app gives each tenant its own token key
   const unwatchKey = watchStore(configStore, storageKey, key => storage.rekey(key))
 
-  const type = () => token()?.type
-
-  const accessToken = () => {
-    const { token_type, access_token } = token() || {}
-    return (token_type && access_token && `${token_type} ${access_token}`) || undefined
-  }
-
-  const status = () => {
-    const value = token()
-    return (
-      (value?.error && OAuthStatus.DENIED) ||
-      (value?.access_token && !isExpiredToken(value) && OAuthStatus.AUTHORIZED) ||
-      OAuthStatus.NOT_AUTHORIZED
-    )
-  }
-
-  const isAuthorized = () => status() === OAuthStatus.AUTHORIZED
-  const error = () => token().error
-  const hasError = () => !!error()
-  const errorDescription = () => token().error_description
+  // every getter goes through the same pure derivation the hooks use, so the two cannot drift
+  const derived = () => tokenState(token())
+  const type = () => derived().type
+  const accessToken = () => derived().accessToken
+  const status = () => derived().status
+  const isAuthorized = () => derived().isAuthorized
+  const error = () => derived().error
+  const hasError = () => derived().hasError
+  const errorDescription = () => derived().errorDescription
 
   const autoconfigOauth = async () => {
     const c = (config() || {}) as OpenIdConfig

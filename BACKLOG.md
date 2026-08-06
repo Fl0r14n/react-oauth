@@ -25,15 +25,16 @@ grep -c createOAuth apps/lib/dist/component.mjs   # must be 0 — see AGENTS.md,
 
 ## In progress — branch `refactor/own-store`
 
-- **#3 — real `getServerSnapshot`, delete the `mounted` flag.** Not started. Bigger than it looks:
-  `useOAuth()` derives its values by calling instance getters during render (`hooks.ts`), which read live
-  store state and bypass any server snapshot. So this also needs the token derivations extracted from
-  `token.ts` into pure functions (`statusOf(token)`, `accessTokenOf(token)`, …) that both the instance
-  getters and the hooks apply — the hooks to a subscribed, server-aware snapshot.
+- **#3 — real `getServerSnapshot`, delete the `mounted` flag.** `tokenState()` in `token.ts` is now the
+  single pure derivation used by both the instance getters and the hooks; `useStoreValue` takes an
+  optional `serverSelector`; the token and user hooks pass a frozen signed-out snapshot; the config store
+  deliberately does not. The `mounted` useState/useEffect gate is gone from `component/OAuth.tsx`, so the
+  account button is server-rendered.
 
-  The server snapshot for the token store is a module-level frozen `{}`: on the server `read()` finds no
-  `localStorage`, so an empty token is always what the server rendered. The **config** store must *not*
-  get one — config is passed to `createOAuth` and is genuinely present during SSR.
+  Not verified in a real browser — the Chrome tooling was unavailable. The spec asserts the server
+  markup is byte-identical with and without a stored token, which is the same invariant, but an actual
+  hydration run with a seeded `localStorage` token would be worth doing: seed a token, reload, confirm
+  no hydration warning in the console and that the avatar switches to the filled icon after hydration.
 - **#6 — `/core` entry + `'use client'`.** Not started. Add `src/core.ts` exporting the React-free
   surface (`types`, `functions`, `store`, `storage`, `module`), keep `index.ts` as the React entry with a
   `'use client'` banner via tsdown `outputOptions.banner`, and add `./core` to the package `exports` map.

@@ -156,8 +156,9 @@ once signed in, and the flow error when there is one.
 - `labels` — every string it renders, for translation (the library itself carries no i18n dependency)
 - `renderUserInfo` — replaces the default user row with your own, receiving `{ user, logout }`
 
-It renders nothing until mounted, on purpose: the token comes from `localStorage`, which the server
-cannot see, so a server-rendered signed-in view would always be a hydration mismatch.
+It server-renders the signed-out view. The token comes from `localStorage`, which the server cannot see,
+so the hooks report signed-out during the server pass *and* during hydration — then re-render once React
+re-reads the store. The account button is in the first paint, and hydration never disagrees.
 
 ### Override oauth functions (optional)
 

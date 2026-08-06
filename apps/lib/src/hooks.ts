@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { useOAuthInstance } from './provider'
 import type { Subscribable } from './store'
-import { isExpiredToken } from './token'
+import { isExpiredToken, tokenState } from './token'
 import type { OAuth, OAuthConfig, OAuthParameters, OAuthStatus, OAuthToken, OAuthType, OAuthTypeConfig, UserInfo } from './types'
 
 /** Every hook here subscribes. Outside React use the instance's getters instead — a getter is invisible
@@ -9,24 +9,36 @@ import type { OAuth, OAuthConfig, OAuthParameters, OAuthStatus, OAuthToken, OAut
 
 /** The React binding for the stores in `store.ts`, which are deliberately React-free.
  *
- * `getServerSnapshot` is the same function as `getSnapshot` on purpose. Handing `useSyncExternalStore`
- * a creation-time snapshot instead — which is what zustand's own `useStore` does — makes anything
- * written after the store was built (a restored token, a discovered config) invisible to
- * `renderToString`.
+ * `serverSelector` is what the server rendered. Omit it for state the server genuinely has — the config
+ * is passed to `createOAuth`, so it must keep reading live or `renderToString` would miss a discovered
+ * endpoint. Pass it for state that only exists in the browser: without it, `getSnapshot` reads
+ * `localStorage` during hydration, the server's HTML says signed-out, and the two disagree.
  *
- * `selector` must return a stable reference for unchanged state, or this re-renders forever. */
-export const useStoreValue = <S, T>(store: Subscribable<S>, selector: (state: S) => T): T => {
+ * React calls `getSnapshot` again after hydration and re-renders if it moved, so the browser-only value
+ * still lands — one render later, and without a mismatch.
+ *
+ * Both selectors must return a stable reference for unchanged state, or this re-renders forever. */
+export const useStoreValue = <S, T>(store: Subscribable<S>, selector: (state: S) => T, serverSelector?: (state: S) => T): T => {
   const snapshot = () => selector(store.getState())
-  return useSyncExternalStore(store.subscribe, snapshot, snapshot)
+  const serverSnapshot = serverSelector ? () => serverSelector(store.getState()) : snapshot
+  return useSyncExternalStore(store.subscribe, snapshot, serverSnapshot)
 }
+
+/** `storage.ts` reads `localStorage`, which the server does not have, so an empty token is always what
+ * the server rendered. Frozen and module-level because `useSyncExternalStore` needs the reference to be
+ * stable across calls. */
+const SERVER_TOKEN: OAuthToken = Object.freeze({})
+const serverToken = () => SERVER_TOKEN
+// the user is derived from the id_token, and `fetchUser` is async — neither resolves during a server pass
+const serverUser = () => undefined
 
 export const useOAuthToken = () => {
   const { tokenStore, setToken } = useOAuthInstance()
-  return { value: useStoreValue(tokenStore, state => state.value), set: setToken }
+  return { value: useStoreValue(tokenStore, state => state.value, serverToken), set: setToken }
 }
 
 /** id_token claims, replaced by the `userinfo` response when a `userPath` is configured. */
-export const useOAuthUser = (): UserInfo | undefined => useStoreValue(useOAuthInstance().userStore, state => state.user)
+export const useOAuthUser = (): UserInfo | undefined => useStoreValue(useOAuthInstance().userStore, state => state.user, serverUser)
 
 /** `config` is the provider/endpoint half — the part `autoconfigOauth()` fills in from discovery. */
 export const useOAuthConfig = () => {
@@ -76,23 +88,18 @@ export interface OAuthState {
 
 export const useOAuth = (): OAuthState => {
   const oauth = useOAuthInstance()
-  // subscribing to the three stores is what makes the derived values below re-render; the getters
-  // read the same state, so they stay the single definition of how each value is derived
-  useStoreValue(oauth.tokenStore, state => state.value)
-  useStoreValue(oauth.configStore, state => state.oauthConfig)
-  useStoreValue(oauth.stateStore, state => state.state)
+  // derived from the subscribed snapshots, not from the instance getters: a getter reads whatever the
+  // store holds now, which during hydration is the restored token rather than the empty one the server
+  // rendered. `tokenState` is the shared derivation, so the getters and this cannot disagree.
+  const token = useStoreValue(oauth.tokenStore, state => state.value, serverToken)
+  const oauthConfig = useStoreValue(oauth.configStore, state => state.oauthConfig)
+  const echoedState = useStoreValue(oauth.stateStore, state => state.state)
 
   return {
-    type: oauth.type(),
-    accessToken: oauth.accessToken(),
-    status: oauth.status(),
-    isAuthorized: oauth.isAuthorized(),
-    error: oauth.error(),
-    hasError: oauth.hasError(),
-    errorDescription: oauth.errorDescription(),
-    state: oauth.state(),
-    config: oauth.config(),
-    storageKey: oauth.storageKey(),
+    ...tokenState(token),
+    state: echoedState,
+    config: oauthConfig.config as Partial<OAuthTypeConfig> | undefined,
+    storageKey: oauthConfig.storageKey || 'token',
     setConfig: oauth.setConfig,
     setStorageKey: oauth.setStorageKey,
     ignorePath: oauth.ignorePath,
@@ -116,14 +123,15 @@ export interface Auth {
 
 export const useAuth = (): Auth => {
   const oauth = useOAuthInstance()
-  const token = useStoreValue(oauth.tokenStore, state => state.value)
-  const user = useStoreValue(oauth.userStore, state => state.user)
+  const token = useStoreValue(oauth.tokenStore, state => state.value, serverToken)
+  const user = useStoreValue(oauth.userStore, state => state.user, serverUser)
+  const { isAuthorized, errorDescription } = tokenState(token)
 
   return {
-    isLoggedIn: !!token?.access_token && !isExpiredToken(token) && !oauth.hasError(),
+    isLoggedIn: isAuthorized,
     token,
     user,
-    error: oauth.errorDescription(),
+    error: errorDescription,
     login: oauth.login,
     logout: oauth.logout,
     oauth

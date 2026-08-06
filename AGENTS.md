@@ -75,10 +75,17 @@ from `test-utils.ts` and call `registerOAuthCleanup()` at the top of the file. N
 requirement now that nothing is registered globally, but still the difference between a clean run and a
 confusing one.
 
-**The component renders nothing until mounted.** The token is seeded from `localStorage`, which the
-server cannot see, so rendering the signed-in view during the server pass guarantees a hydration
-mismatch. Testing that gate needs `renderToString` — Testing Library's `render()` flushes effects, so the
-gate is already open by the time it returns.
+**Browser-only state needs a server snapshot, not a mount gate.** The token is seeded from
+`localStorage`, which the server cannot see, so a hook that reads it during hydration disagrees with the
+server's HTML. The fix is the third argument to `useStoreValue`: the token and user hooks pass a
+deterministic signed-out snapshot, React re-reads the store after hydration, and the real value lands one
+render later without a mismatch. Config does **not** get one — it is passed to `createOAuth`, so
+`renderToString` must see discovered endpoints.
+
+This is also why the hooks derive from `tokenState(snapshot)` rather than calling the instance getters: a
+getter reads the store directly and would smuggle the restored token back into the hydration render.
+Testing any of it needs `renderToString` — Testing Library's `render()` flushes effects, so React has
+already re-read the store by the time it returns.
 
 **The user row in the component is not conditional.** Logout lives in that row's `secondaryAction`, so
 gating the row on `name`/`email` would strand a user whose claims carry only a `sub` with no way to sign
