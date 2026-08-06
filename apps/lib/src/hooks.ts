@@ -5,7 +5,6 @@ import {
   isExpiredToken,
   type OAuth,
   type OAuthConfig,
-  type OAuthParameters,
   type OAuthStatus,
   type OAuthToken,
   type OAuthType,
@@ -128,8 +127,8 @@ export interface Auth {
   token: OAuthToken
   user?: UserInfo
   error?: string
-  login: (parameters?: OAuthParameters) => Promise<string | undefined>
-  logout: (logoutRedirectUri?: string, state?: string) => Promise<void>
+  login: OAuth['login']
+  logout: OAuth['logout']
   oauth: OAuth
 }
 

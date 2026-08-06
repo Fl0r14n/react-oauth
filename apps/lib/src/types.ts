@@ -57,6 +57,13 @@ export type AuthorizationCodeParameters = {
 
 export type OAuthParameters = ResourceOwnerParameters | AuthorizationCodeParameters
 
+export type RedirectOptions = {
+  /** `false` builds the URL and returns it without navigating, for callers that own navigation — a
+   * router, or Next's `redirect()`. The PKCE verifier and nonce are persisted either way, so the
+   * callback still works. Defaults to `true`. */
+  redirect?: boolean
+}
+
 export type OAuthTypeConfig =
   | OpenIdConfig
   | AuthorizationCodePKCEConfig
@@ -213,8 +220,11 @@ export interface OAuth {
   // --- flows
   stateStore: Subscribable<{ state?: string }>
   state: () => string | undefined
-  login: (parameters?: OAuthParameters) => Promise<string | undefined>
-  logout: (logoutRedirectUri?: string, state?: string) => Promise<void>
+  /** returns the authorization URL for the redirect flows, `undefined` for the direct grants */
+  login: (parameters?: OAuthParameters, options?: RedirectOptions) => Promise<string | undefined>
+  /** returns the end-session URL when there is one to visit, `undefined` when logout was a local revoke */
+  logout: (logoutRedirectUri?: string, state?: string, options?: RedirectOptions) => Promise<string | undefined>
+  /** idempotent per redirect: the same `code` is exchanged once however many times this is called */
   oauthCallback: (url?: string | URL) => Promise<void>
   checkToken: () => Promise<void>
   autoconfigOauth: () => Promise<void>

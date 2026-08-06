@@ -69,19 +69,15 @@ are discovered from `<issuer>/.well-known/openid-configuration` on the first log
 For the authorization-code and implicit flows, add a route the IdP can come back to:
 
 ```tsx
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOAuth } from 'react-oauth-oidc'
 
 export const OAuthCallbackPage = () => {
   const { oauthCallback } = useOAuth()
   const navigate = useNavigate()
-  // an authorization code is single-use, and StrictMode double-invokes effects in development
-  const exchanged = useRef(false)
 
   useEffect(() => {
-    if (exchanged.current) return
-    exchanged.current = true
     void oauthCallback(globalThis.location?.href).finally(() => navigate('/', { replace: true }))
   }, [oauthCallback, navigate])
 
@@ -89,8 +85,29 @@ export const OAuthCallbackPage = () => {
 }
 ```
 
+No guard needed. `oauthCallback` is idempotent per redirect: an authorization code is single-use, so
+calling it twice with the same URL returns the first exchange rather than starting a second. That covers
+StrictMode's double-invoke in development and a browser Back into the callback URL in production, where
+re-exchanging a consumed code would come back as `invalid_grant` and take down a session that had already
+succeeded.
+
 An effect rather than a route loader, deliberately: the exchange needs the `code_verifier` from browser
 storage, and a loader also runs on the server.
+
+### Own the navigation
+
+`login()` and `logout()` navigate with `location.replace` by default. Pass `{ redirect: false }` to get
+the URL back instead and route it yourself — a React Router navigation, or Next's `redirect()`:
+
+```ts
+const url = await login({ redirectUri, responseType: 'code' }, { redirect: false })
+// the PKCE verifier and nonce are already persisted, so the callback works whoever navigates
+router.push(url!)
+```
+
+`logout()` returns the end-session URL the same way, and clears the local session either way — so it is
+never left behind if the navigation does not happen. It returns `undefined` when there is no hosted
+end-session endpoint to visit, since logout was then a local token revocation.
 
 ### Use the hooks
 

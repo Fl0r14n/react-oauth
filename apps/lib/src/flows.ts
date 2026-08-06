@@ -9,6 +9,7 @@ import {
   type OAuthParameters,
   OAuthType,
   type OpenIdConfig,
+  type RedirectOptions,
   type ResourceOwnerConfig,
   type ResourceOwnerParameters
 } from './types'
@@ -57,7 +58,7 @@ export const createFlows = (
     return parameters
   }
 
-  const toAuthorizationUrl = async (parameters: AuthorizationCodeParameters) => {
+  const toAuthorizationUrl = async (parameters: AuthorizationCodeParameters, redirect: boolean) => {
     const { authorizePath, clientId, scope = '', pkce: usePkce } = config() as any
     // not only a config typo — with just an `issuerPath` set this comes from discovery, so a failed
     // discovery lands here too. Without the check it dies on `authorizePath.includes`, naming nothing.
@@ -94,7 +95,11 @@ export const createFlows = (
       ...(pkcePair && { code_verifier: pkcePair.code_verifier })
     })
     const url = `${authorizePath}${authorizePath.includes('?') ? '&' : '?'}${params}`
-    globalThis.location?.replace(url)
+    // the verifier and nonce are persisted either way, so a caller that navigates itself — a router,
+    // Next's redirect() — gets a callback that still works
+    if (redirect) {
+      globalThis.location?.replace(url)
+    }
     return url
   }
 
@@ -105,7 +110,7 @@ export const createFlows = (
     }
   }
 
-  const login = async (parameters?: OAuthParameters) => {
+  const login = async (parameters?: OAuthParameters, { redirect = true }: RedirectOptions = {}) => {
     await autoconfigOauth()
     if (parameters && (parameters as ResourceOwnerParameters).password) {
       setToken((await functions.resourceOwnerLogin(parameters as ResourceOwnerParameters, config() as ResourceOwnerConfig)) || {})
@@ -114,13 +119,13 @@ export const createFlows = (
       (parameters as AuthorizationCodeParameters).redirectUri &&
       (parameters as AuthorizationCodeParameters).responseType
     ) {
-      return await toAuthorizationUrl(parameters as AuthorizationCodeParameters)
+      return await toAuthorizationUrl(parameters as AuthorizationCodeParameters, redirect)
     } else {
       setToken((await functions.clientCredentialLogin(config() as ClientCredentialConfig)) || {})
     }
   }
 
-  const logout = async (logoutRedirectUri?: string, logoutState?: string) => {
+  const logout = async (logoutRedirectUri?: string, logoutState?: string, { redirect = true }: RedirectOptions = {}) => {
     await autoconfigOauth()
     const { logoutPath, clientId, logoutRedirectUri: configLogoutRedirectUri } = (config() as OpenIdConfig) || {}
     const returnUri = logoutRedirectUri || configLogoutRedirectUri
@@ -136,8 +141,14 @@ export const createFlows = (
       if (logoutState) {
         params.set('state', logoutState)
       }
+      // cleared before navigating either way: the local session must not outlive the call, whoever
+      // ends up performing the navigation
       setToken({})
-      globalThis.location?.replace(`${logoutPath}${logoutPath.includes('?') ? '&' : '?'}${params}`)
+      const url = `${logoutPath}${logoutPath.includes('?') ? '&' : '?'}${params}`
+      if (redirect) {
+        globalThis.location?.replace(url)
+      }
+      return url
     } else {
       // best-effort: revoke may reject (IdP answers 4xx for an already-invalid token) and the local
       // session must go either way, or it lingers, 401s, and refills the token with the IdP's error
@@ -149,31 +160,54 @@ export const createFlows = (
     }
   }
 
-  const oauthCallback = async (url?: string | URL) => {
-    // do not run in SSR, verifiers sit in the user's browser storage
-    if (typeof window === 'undefined') return
-    const path = (url && new URL(url)) || globalThis.location || ({} as Location)
-    const { hash, search } = path
-    const isImplicitRedirect = hash && /(access_token=)|(error=)/.test(hash)
-    const isAuthCodeRedirect = (search && /(code=)|(error=)/.test(search)) || (hash && /(code=)|(error=)/.test(hash))
-    if (isImplicitRedirect) {
+  // An authorization code is single-use, so the same redirect must be exchanged exactly once — and it
+  // arrives more than once in practice: StrictMode double-invokes effects in development, and a browser
+  // Back into the callback URL replays it in production. Keyed by the redirect's own parameters, so a
+  // repeat returns the first attempt's promise while a genuinely different redirect runs normally.
+  //
+  // Entries are kept rather than cleared on settle. Clearing would only cover the concurrent case, and
+  // re-exchanging a consumed code does not fail harmlessly — the IdP answers invalid_grant, which lands
+  // in the token as an error and takes down a session that had already succeeded.
+  const inFlight = new Map<string, Promise<void>>()
+
+  const runCallback = async (search: string, hash: string) => {
+    if (hash && /(access_token=)|(error=)/.test(hash)) {
       const parameters = parseOauthUri(hash.substring(1))
       setToken({
         ...(await checkNonce(parameters)),
         type: OAuthType.IMPLICIT
       })
       setState(parameters?.state)
-    } else if (isAuthCodeRedirect) {
-      const parameters = parseOauthUri(search?.substring(1) || hash?.substring(1))
-      setToken({
-        ...token(),
-        ...parameters
-        // do not set type yet. will be set by authorize function since it is a two-step process
-      })
-      setState(parameters?.state)
-      await autoconfigOauth()
-      await checkCode()
+      return
     }
+    const parameters = parseOauthUri(search?.substring(1) || hash?.substring(1))
+    setToken({
+      ...token(),
+      ...parameters
+      // do not set type yet. will be set by authorize function since it is a two-step process
+    })
+    setState(parameters?.state)
+    await autoconfigOauth()
+    await checkCode()
+  }
+
+  const oauthCallback = async (url?: string | URL) => {
+    // do not run in SSR, verifiers sit in the user's browser storage
+    if (typeof window === 'undefined') return
+    const path = (url && new URL(url)) || globalThis.location || ({} as Location)
+    const { hash, search } = path
+    const isImplicitRedirect = !!hash && /(access_token=)|(error=)/.test(hash)
+    const isAuthCodeRedirect = (!!search && /(code=)|(error=)/.test(search)) || (!!hash && /(code=)|(error=)/.test(hash))
+    if (!isImplicitRedirect && !isAuthCodeRedirect) return
+
+    const key = `${search || ''}${hash || ''}`
+    const existing = inFlight.get(key)
+    if (existing) return existing
+
+    // registered before the first await, so a synchronous second invocation sees it
+    const run = runCallback(search || '', hash || '')
+    inFlight.set(key, run)
+    return run
   }
 
   return {
