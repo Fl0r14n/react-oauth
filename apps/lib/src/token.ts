@@ -45,9 +45,6 @@ export const createToken = (
   const token = storage.get
   const setToken = storage.set
 
-  // the storage key is runtime-mutable: a multi-tenant app gives each tenant its own token key
-  const unwatchKey = watchStore(configStore, storageKey, key => storage.rekey(key))
-
   // every getter goes through the same pure derivation the hooks use, so the two cannot drift
   const derived = () => tokenState(token())
   const type = () => derived().type
@@ -123,9 +120,26 @@ export const createToken = (
       void checkToken()
     }
   }
-  const unwatchConfig = watchStore(configStore, config, revalidate)
-  const unwatchToken = watchStore(storage.store, accessToken, revalidate)
-  revalidate()
+
+  // Nothing above this point observes anything or touches the network. Subscribing and revalidating are
+  // deferred to start(), so constructing an instance is inert — see createOAuth.
+  let teardowns: Array<() => void> = []
+
+  const start = () => {
+    if (teardowns.length) return
+    // reconcile before subscribing: the watchers only fire on *change*, so a storageKey set while the
+    // instance was inert — or between a dispose and a restart — would otherwise leave the token read
+    // from the old key with the config claiming the new one
+    storage.rekey(storageKey())
+    teardowns = [
+      // the storage key is runtime-mutable: a multi-tenant app gives each tenant its own token key
+      watchStore(configStore, storageKey, key => storage.rekey(key)),
+      watchStore(configStore, config, revalidate),
+      watchStore(storage.store, accessToken, revalidate)
+    ]
+    // a stored token may already be expired, and discovery may not have run yet
+    revalidate()
+  }
 
   return {
     tokenStore: storage.store,
@@ -140,10 +154,10 @@ export const createToken = (
     errorDescription,
     autoconfigOauth,
     checkToken,
+    start,
     dispose: () => {
-      unwatchKey()
-      unwatchConfig()
-      unwatchToken()
+      teardowns.forEach(teardown => teardown())
+      teardowns = []
     }
   }
 }

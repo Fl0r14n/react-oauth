@@ -267,7 +267,24 @@ The library never imports `node:async_hooks`; it stays runtime-agnostic.
 | `storageKey` | `'token'` | the `localStorage` key the token is persisted under; changing it at runtime re-reads that key without writing to it |
 | `ignorePaths` | `[]` | request URL patterns the authorization interceptor skips |
 | `strictJwt` | `true` | verify the `id_token` against the JWKS; with it off, claims are parsed without verification |
+| `autoStart` | `true` | with `false`, building the instance observes nothing and hits no network until you call `start()` |
 | `functions` | — | per-instance overrides of the protocol layer |
+
+### Deferring the start
+
+`createOAuth()` normally arms itself: it subscribes to its own stores, and revalidates a stored token —
+which can mean a refresh request. That is usually what you want, but an instance is typically built at
+module scope, where it means a network call on import. `autoStart: false` builds an inert instance:
+
+```ts
+export const oauth = createOAuth({ config: { /* ... */ }, autoStart: false })
+
+// later, once whatever had to happen first has happened
+oauth.start()
+```
+
+`start()` is idempotent, re-arms an instance you disposed, and reconciles before subscribing — so a
+`storageKey` set while the instance was inert is picked up rather than ignored.
 
 ## IdP examples
 

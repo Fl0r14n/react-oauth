@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
+import { createOAuth, flush, idToken, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
 import { OAuthType } from './types'
 
 const local = installStorage()
@@ -21,6 +21,88 @@ describe('createOAuth', () => {
 
     expect(first.token().access_token).toBe('first')
     expect(first.isAuthorized()).toBe(true)
+  })
+})
+
+describe('autoStart / start()', () => {
+  const expiredToken = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt', expires: Date.now() - 1_000 }
+
+  it('touches nothing until start() when autoStart is false', async () => {
+    local.setItem('inert', JSON.stringify(expiredToken))
+    const functions = mockOAuthFunctions()
+    functions.refresh.mockResolvedValue({ access_token: 'fresh', token_type: 'Bearer', expires_in: 3600 })
+
+    const oauth = createOAuth({ storageKey: 'inert', config: { tokenPath: '/t', clientId: 'c' }, functions, autoStart: false })
+    await flush()
+
+    // the stored token is expired, so an instance that observed anything would already have refreshed
+    expect(functions.refresh).not.toHaveBeenCalled()
+    expect(oauth.token().access_token).toBe('at')
+
+    oauth.start()
+    await flush()
+
+    expect(functions.refresh).toHaveBeenCalled()
+    expect(oauth.token().access_token).toBe('fresh')
+  })
+
+  it('revalidates on construction by default', async () => {
+    local.setItem('eager', JSON.stringify(expiredToken))
+    const functions = mockOAuthFunctions()
+    functions.refresh.mockResolvedValue({ access_token: 'fresh', token_type: 'Bearer', expires_in: 3600 })
+
+    createOAuth({ storageKey: 'eager', config: { tokenPath: '/t', clientId: 'c' }, functions })
+    await flush()
+
+    expect(functions.refresh).toHaveBeenCalled()
+  })
+
+  it('start() reconciles a storageKey that changed while inert', () => {
+    local.setItem('tenant-a', JSON.stringify({ access_token: 'a' }))
+    local.setItem('tenant-b', JSON.stringify({ access_token: 'b' }))
+    const oauth = createOAuth({ storageKey: 'tenant-a', functions: mockOAuthFunctions(), autoStart: false })
+
+    oauth.setStorageKey('tenant-b')
+    // nothing is watching yet, so the token still comes from tenant-a
+    expect(oauth.token().access_token).toBe('a')
+
+    oauth.start()
+
+    // start reconciles rather than only subscribing — the watchers fire on change, and this was not one
+    expect(oauth.token().access_token).toBe('b')
+  })
+
+  it('start() is idempotent — watchers are attached once', async () => {
+    local.setItem('once', JSON.stringify({ access_token: 'at', token_type: 'Bearer' }))
+    const functions = mockOAuthFunctions()
+    functions.userInfo.mockResolvedValue({ sub: 'abc' })
+    const oauth = createOAuth({ storageKey: 'once', config: { tokenPath: '/t', clientId: 'c', userPath: '/me' }, functions })
+    await flush()
+    const callsAfterFirstStart = functions.userInfo.mock.calls.length
+
+    oauth.start()
+    oauth.start()
+    await flush()
+
+    expect(functions.userInfo.mock.calls.length).toBe(callsAfterFirstStart)
+  })
+
+  it('re-arms after a dispose', async () => {
+    local.setItem('rearm', JSON.stringify({ access_token: 'at', token_type: 'Bearer' }))
+    const functions = mockOAuthFunctions()
+    const oauth = createOAuth({ storageKey: 'rearm', config: { tokenPath: '/t', clientId: 'c' }, functions })
+    oauth.dispose()
+
+    // disposed: the id_token watcher is gone, so the user is not decoded
+    oauth.setToken({ id_token: idToken({ name: 'Ignored' }) })
+    await flush()
+    expect(oauth.user()).toBeUndefined()
+
+    oauth.start()
+    oauth.setToken({ id_token: idToken({ name: 'Jane' }) })
+    await flush()
+
+    expect(oauth.user()?.name).toBe('Jane')
   })
 })
 

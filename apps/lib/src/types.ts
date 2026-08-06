@@ -81,6 +81,10 @@ export type OAuthConfig<TExtra = unknown> = {
   ignorePaths?: RegExp[]
   strictJwt?: boolean
   functions?: Partial<OAuthFunctions>
+  /** `false` builds an inert instance: no subscriptions, no revalidation, no network until you call
+   * `start()`. Useful when the instance is created at module scope and something has to happen first —
+   * installing mocks in a test, or reading a config that is not available at import time. */
+  autoStart?: boolean
 } & TExtra
 
 /** `as const` objects rather than TS `enum`s: they erase to plain values (so a runtime that only strips
@@ -179,8 +183,10 @@ export interface OAuthFunctions {
 }
 
 export interface OAuth {
-  /** stops every watcher and clears the module pointer if it points here. On SSR, call it per request
-   * once the render is done. */
+  /** attaches the watchers and revalidates a stored token. Called for you unless you passed
+   * `autoStart: false`. Idempotent, and re-arms an instance that was disposed. */
+  start: () => void
+  /** stops every watcher. On SSR, call it per request once the render is done. */
   dispose: () => void
 
   // --- config

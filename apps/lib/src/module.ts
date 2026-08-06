@@ -45,6 +45,11 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
   const { userStore, user } = userContext
 
   const oauth: OAuth = {
+    // idempotent, and re-armable after a dispose
+    start: () => {
+      tokenContext.start()
+      userContext.start()
+    },
     // idempotent: the teardowns are Set deletes, so a double dispose is harmless
     dispose: () => {
       tokenContext.dispose()
@@ -83,6 +88,16 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     autoconfigOauth,
     authorizationInterceptor,
     unauthorizedInterceptor
+  }
+
+  // Construction itself is inert: no subscriptions, no network, nothing observed. That matters because
+  // an instance is normally built at module scope, where a side effect runs on import — before a test
+  // can install its mocks, and during an SSR pass that may only need the type.
+  //
+  // Default true, because the common case is "build it and use it" and making everyone remember a second
+  // call would be a worse API than the side effect was.
+  if (cfg?.autoStart !== false) {
+    oauth.start()
   }
   return oauth
 }
