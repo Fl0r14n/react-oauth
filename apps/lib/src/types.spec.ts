@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { createOAuth } from './module'
+import { mockOAuthFunctions } from './test-utils'
 import { type OAuthConfig, OAuthStatus, type OAuthToken, OAuthType, type UserInfo } from './types'
 
 /** Mostly compile-time. `tsc --noEmit` covers src/**, so a `@ts-expect-error` here fails the build if
@@ -81,5 +83,18 @@ describe('OAuthConfig', () => {
     // @ts-expect-error `storagekey` is not `storageKey` — previously indistinguishable from a real option
     const config: OAuthConfig = { storagekey: 'token' }
     expect(config).toBeDefined()
+  })
+
+  it('createOAuth takes extras through an annotation, and still catches a typo', () => {
+    const config: OAuthConfig<{ tenant: string }> = { storageKey: 'token', tenant: 'acme', functions: mockOAuthFunctions() }
+    const oauth = createOAuth(config)
+
+    expect(oauth.oauthConfig().storageKey).toBe('token')
+    expect((oauth.oauthConfig() as typeof config).tenant).toBe('acme')
+
+    // @ts-expect-error the whole point: a misspelled option is rejected at the call site. Making
+    // createOAuth generic would infer this typo as a legitimate extra field and accept it.
+    createOAuth({ storagekey: 'token', functions: mockOAuthFunctions() }).dispose()
+    oauth.dispose()
   })
 })

@@ -5,7 +5,9 @@ Working notes for this repo. See [README.md](README.md) for the user-facing vers
 ## What this is
 
 `react-oauth-oidc`: an OAuth 2.1 / OpenID Connect library for React, plus a demo app that consumes it.
-All four grants (resource owner, implicit, authorization code, client credentials), OIDC, and PKCE.
+Authorization code + PKCE and client credentials are the current grants; implicit and resource-owner
+password are supported for legacy providers and documented as deprecated, since OAuth 2.1 omits both.
+Do not quietly drop them — plenty of deployed IdPs still offer nothing else.
 
 The core is deliberately React-free — plain functions over the in-house observable stores in
 `store.ts` — so interceptors, route loaders and services can use it. React only enters through

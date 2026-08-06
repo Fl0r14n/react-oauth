@@ -2,7 +2,9 @@
 
 OAuth 2.1 / OpenID Connect React library, published as [`react-oauth-oidc`](apps/lib/README.md) on npm.
 
-All four grants — resource owner, implicit, authorization code, client credentials — plus OIDC and PKCE.
+Authorization code with PKCE and client credentials, plus OIDC, discovery, JWKS verification and
+automatic refresh. The implicit and resource-owner-password grants are supported too, and marked
+deprecated — OAuth 2.1 omits both.
 
 This repo is a Bun monorepo with two packages:
 

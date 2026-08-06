@@ -15,6 +15,10 @@ import { createUser } from './user'
  * the value this returned — the axios client on it already carries the interceptors. A global pointer
  * would only add a second source of truth, and one that cannot be answered correctly under concurrent
  * SSR. */
+// deliberately not generic in the config's extra fields. A type parameter here would be *inferred* from
+// the argument, so `createOAuth({ storagekey: 'token' })` would infer the typo as a legitimate extra and
+// compile — which is the exact mistake the index signature used to allow. Annotate instead:
+// `const cfg: OAuthConfig<{ tenant: string }> = …`.
 export const createOAuth = (cfg?: OAuthConfig): OAuth => {
   const configContext = createConfig(cfg)
   const functions = { ...defaultOAuthFunctions, ...cfg?.functions }

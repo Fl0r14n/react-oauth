@@ -1,18 +1,17 @@
 # react-oauth-oidc
 
-> A fully **OAuth 2.1** compliant React library. All four flows are supported:
->
-> - **resource owner**
-> - **implicit**
-> - **authorization code**
-> - **client credentials**
+OAuth 2.1 and OpenID Connect for React, with a protocol layer that does not depend on React at all.
 
-> Supports OIDC
+| grant | status |
+| --- | --- |
+| **authorization code** + PKCE | recommended for anything with a user |
+| **client credentials** | machine-to-machine |
+| **implicit** | **deprecated** — omitted from OAuth 2.1, see [Legacy grants](#legacy-grants) |
+| **resource owner password** | **deprecated** — omitted from OAuth 2.1, see [Legacy grants](#legacy-grants) |
 
-> `PKCE` support for authorization code with code verification
-
-The protocol layer is plain functions over small observable stores and needs no React, so interceptors,
-route loaders and services can use it directly. React enters only through the hooks and the provider.
+Endpoint discovery, `id_token` verification against the provider's JWKS, and automatic refresh are
+included. The protocol layer is plain functions over small observable stores, so route loaders, services
+and workers can use it directly; React enters only through the hooks and the provider.
 
 ```sh
 bun add react-oauth-oidc
@@ -23,7 +22,7 @@ Peers: `react` and `react-dom`. Nothing else is required — the protocol runs o
 `axios` is needed only for the optional `react-oauth-oidc/axios` entry, and `@mui/material`,
 `@mui/icons-material` and `@emotion/*` only for `react-oauth-oidc/component`.
 
-### Entry points
+## Entry points
 
 | import from | you get | notes |
 | --- | --- | --- |
@@ -41,19 +40,21 @@ drag a server module across the client boundary:
 import { createOAuth, isExpiredToken } from 'react-oauth-oidc/core'
 ```
 
-## How to
+## Quick start
 
-### Configure your oauth client
+### 1. Create the instance
 
 ```tsx
 import { createOAuth, OAuthProvider } from 'react-oauth-oidc'
 
 // created once, outside the component tree: route loaders and your own services need the
 // instance before anything renders
-const oauth = createOAuth({
+export const oauth = createOAuth({
   config: {
     issuerPath: 'https://accounts.google.com',
-    clientId: '<your_client_id>'
+    clientId: '<your_client_id>',
+    scope: 'openid profile email',
+    pkce: true
   }
 })
 
@@ -67,17 +68,20 @@ createRoot(document.getElementById('app')!).render(
 With only an `issuerPath` set, the endpoints (`authorizePath`, `tokenPath`, `jwksUri`, PKCE support, …)
 are discovered from `<issuer>/.well-known/openid-configuration` on the first login.
 
-### Handle the redirect
+`<OAuthProvider>` is required. The hooks resolve their instance from context and nothing else, and throw
+when it is missing.
+
+### 2. Handle the redirect
 
 For the authorization-code and implicit flows, add a route the IdP can come back to:
 
 ```tsx
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { useOAuth } from 'react-oauth-oidc'
+import { useOAuthActions } from 'react-oauth-oidc'
 
 export const OAuthCallbackPage = () => {
-  const { oauthCallback } = useOAuth()
+  const { oauthCallback } = useOAuthActions()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -97,7 +101,20 @@ succeeded.
 An effect rather than a route loader, deliberately: the exchange needs the `code_verifier` from browser
 storage, and a loader also runs on the server.
 
-### Own the navigation
+### 3. Sign in and out
+
+```tsx
+import { useAuth } from 'react-oauth-oidc'
+
+const Profile = () => {
+  const { isLoggedIn, user, login, logout } = useAuth()
+  return isLoggedIn ? (
+    <button onClick={() => logout()}>{user?.name}</button>
+  ) : (
+    <button onClick={() => login({ redirectUri: `${location.origin}/oauth_callback`, responseType: 'code' })}>Login</button>
+  )
+}
+```
 
 `login()` and `logout()` navigate with `location.replace` by default. Pass `{ redirect: false }` to get
 the URL back instead and route it yourself — a React Router navigation, or Next's `redirect()`:
@@ -112,30 +129,23 @@ router.push(url!)
 never left behind if the navigation does not happen. It returns `undefined` when there is no hosted
 end-session endpoint to visit, since logout was then a local token revocation.
 
-### Use the hooks
-
-```tsx
-import { useAuth } from 'react-oauth-oidc'
-
-const Profile = () => {
-  const { isLoggedIn, user, login, logout } = useAuth()
-  return isLoggedIn ? <button onClick={() => logout()}>{user?.name}</button> : <button onClick={() => login()}>Login</button>
-}
-```
+## Hooks
 
 | hook | gives you |
 | --- | --- |
 | `useAuth()` | `isLoggedIn`, `token`, `user`, `error`, `login`, `logout` — the one most components want |
 | `useOAuth()` | the derived protocol state (`status`, `isAuthorized`, `accessToken`, `error`, `state`, `config`) plus every action |
+| `useOAuthActions()` | every action, nothing observed |
 | `useOAuthToken()` | `[token, setToken]` — the live token |
 | `useOAuthUser()` | the live `UserInfo` |
 | `useOAuthConfig()` | the live config and its setters |
+| `useOAuthForm()` | the credentials form's state and validation, unstyled |
 | `useOAuthFetch()` | `fetch` with the bearer attached, refreshing first and recording a 401 |
 | `useOAuthAuthHeaders()` | the `Authorization` header, for a request you build yourself |
 | `useOAuthFunctions()` | the protocol layer, with your overrides applied |
 | `useOAuthInstance()` | the instance itself, for the cases the hooks do not cover |
 
-#### Subscribe to less
+### Subscribe to less
 
 `useOAuth()` and `useOAuthToken()` re-render on *any* token write — including the nonce, the code
 verifier and the redirect URI stashed during a PKCE handshake, none of which a component usually cares
@@ -165,32 +175,33 @@ const SignOut = () => {
 object every call re-renders forever. Every one of these derives its server value by applying the same
 selector to an empty token, so they hydrate without a mismatch and without any extra plumbing.
 
-`useAuth()` does not hand back the instance. The instance exposes getters, and a getter read during
-render happens once and never updates — returning it from a hook put that trap in the most ergonomic
-path. Ask for it explicitly with `useOAuthInstance()` when you need it.
+`useAuth()` does not hand back the instance, on purpose. See below.
 
-Every hook subscribes and re-renders. **Outside React** — route loaders, interceptors, plain
-services — hold on to the instance `createOAuth()` returned and call its getters:
+## Outside React
+
+Route loaders, plain services, interceptors: hold on to the instance `createOAuth()` returned and call its
+getters.
 
 ```ts
-// oauth.ts — your bootstrap owns the instance, and hands the same one to <OAuthProvider>
-export const oauth = createOAuth({ config: { /* ... */ } })
+import { oauth } from './oauth'
 
-// anywhere else
 if (oauth.isAuthorized()) {
-  /* ... */
+  const { access_token } = oauth.token()
 }
 ```
 
 There is no `getActiveOAuth()` and no ambient "current instance". Everything that needs one already has
-it: React reads it from the provider, and your own modules import the value you exported. `oauth.fetch`
-already attaches the bearer, so the common case needs no wiring at all.
+it: React reads it from the provider, and your own modules import the value you exported. That is also
+what makes concurrent SSR safe — with no ambient pointer, nothing can hand one request another request's
+token.
 
-The getters are invisible to React, which is exactly why components must not use them — `oauth.isAuthorized()`
-in a component renders once and never updates.
+**The getters are invisible to React.** `oauth.isAuthorized()` read during render happens once and never
+updates, which is why components go through the hooks instead, and why `useAuth()` does not return the
+instance — that would have put the trap in the most ergonomic path. Ask for it explicitly with
+`useOAuthInstance()` when a component genuinely needs it.
 
-To react to changes outside React, subscribe to the instance's stores with `watchStore`, which fires only
-when the *selected* value changes:
+To react to changes outside React, subscribe with `watchStore`, which fires only when the *selected* value
+changes:
 
 ```ts
 import { watchStore } from 'react-oauth-oidc'
@@ -205,6 +216,64 @@ The exposed stores (`tokenStore`, `configStore`, `userStore`, `stateStore`) are 
 `subscribe`, no `setState`. Writes go through `setToken` / `setConfig` / `setStorageKey`, which own
 persistence and the `expires` computation — a raw store write would skip both. `createStore` and
 `createStorageStore` are exported too, if you want stores of your own on the same primitives.
+
+## Calling your own API
+
+`oauth.fetch` is `fetch` with the bearer attached. It refreshes an expired token before the call — sharing
+one refresh across concurrent calls rather than starting a stampede — and records a 401's body on the
+token, so a session the IdP invalidated behind your back surfaces as an error instead of a token that
+looks fine and fails everything:
+
+```ts
+const orders = await oauth.fetch('/api/orders').then(r => r.json())
+```
+
+In a component, `useOAuthFetch()`. If you are building the request with something else, take the header
+instead — `useOAuthAuthHeaders()`, or `oauth.authHeaders(url)`, which is `{}` when there is no token or
+the URL is ignored, so it can be spread unconditionally:
+
+```ts
+await myClient.get('/api/orders', { headers: { ...(await oauth.authHeaders('/api/orders')) } })
+```
+
+### Skipping public paths
+
+Register the request URLs that must not carry a bearer. Patterns are tested against the URL as given and
+against its pathname, so an anchored pattern works for a relative path and an absolute URL alike:
+
+```ts
+oauth.ignorePath(/^\/public\//)
+```
+
+### axios
+
+If your own requests want interceptors, `react-oauth-oidc/axios` has them. It is the only entry that
+imports axios, which is why the dependency is optional:
+
+```ts
+import { createAxiosClient, createAxiosInterceptors } from 'react-oauth-oidc/axios'
+
+// a client with both interceptors attached
+export const api = createAxiosClient(oauth, { baseURL: '/api' })
+
+// or attach them to a client you already have
+const { authorizationInterceptor, unauthorizedInterceptor } = createAxiosInterceptors(oauth)
+existing.interceptors.request.use(authorizationInterceptor)
+existing.interceptors.response.use(response => response, unauthorizedInterceptor)
+```
+
+The adapter takes the instance rather than calling a hook, so it works outside React too. In a component,
+keep the client stable:
+
+```ts
+const oauth = useOAuthInstance()
+const api = useMemo(() => createAxiosClient(oauth), [oauth])
+```
+
+Create one client per OAuth instance, never a shared default — on the server, two concurrent requests
+sharing interceptors means one request's bearer on another request's call.
+
+## UI
 
 ### The `<OAuth>` component
 
@@ -227,6 +296,10 @@ once signed in, and the flow error when there is one.
 
 - `labels` — every string it renders, for translation (the library itself carries no i18n dependency)
 - `renderUserInfo` — replaces the default user row with your own, receiving `{ user, logout }`
+
+It server-renders the signed-out view. The token comes from `localStorage`, which the server cannot see,
+so the hooks report signed-out during the server pass *and* during hydration — then re-render once React
+re-reads the store. The account button is in the first paint, and hydration never disagrees.
 
 ### Or build your own form
 
@@ -261,13 +334,51 @@ const SignIn = () => {
 required fields. `form.error` is the IdP's rejection of the last attempt; `dismissError()` hides it, and
 the next attempt shows it again even if the message is identical.
 
-It server-renders the signed-out view. The token comes from `localStorage`, which the server cannot see,
-so the hooks report signed-out during the server pass *and* during hydration — then re-render once React
-re-reads the store. The account button is in the first paint, and hydration never disagrees.
+## Configuration
 
-### Override oauth functions (optional)
+| option | default | meaning |
+| --- | --- | --- |
+| `config` | — | the provider/endpoint half: `issuerPath`, `clientId`, `clientSecret`, `scope`, `authorizePath`, `tokenPath`, `revokePath`, `logoutPath`, `userPath`, `introspectionPath`, `jwksUri`, `pkce`, `redirectUri`, `logoutRedirectUri` |
+| `storageKey` | `'token'` | the `localStorage` key the token is persisted under; changing it at runtime re-reads that key without writing to it |
+| `ignorePaths` | `[]` | request URL patterns that must not carry a bearer — see [Skipping public paths](#skipping-public-paths) |
+| `strictJwt` | `true` | verify the `id_token` against the JWKS; with it off, claims are parsed without verification |
+| `autoStart` | `true` | with `false`, building the instance observes nothing and hits no network until you call `start()` |
+| `functions` | — | per-instance overrides of the protocol layer |
 
-Every network call (`refresh`, `revoke`, `authorize`, `userInfo`, …) can be replaced per instance — no
+There is no index signature, so a misspelled option is a compile error rather than a silently ignored one.
+Fields of your own are named through the type parameter:
+
+```ts
+const config: OAuthConfig<{ tenant: string }> = { config: { /* ... */ }, tenant: 'acme' }
+const oauth = createOAuth(config)
+```
+
+`OAuthToken<TExtra>` and `UserInfo<TClaims>` do the same for provider-specific token fields and custom
+claims:
+
+```ts
+const { groups } = oauth.user() as UserInfo<{ groups: string[] }>
+```
+
+### Deferring the start
+
+`createOAuth()` normally arms itself: it subscribes to its own stores, and revalidates a stored token —
+which can mean a refresh request. That is usually what you want, but an instance is typically built at
+module scope, where it means a network call on import. `autoStart: false` builds an inert instance:
+
+```ts
+export const oauth = createOAuth({ config: { /* ... */ }, autoStart: false })
+
+// later, once whatever had to happen first has happened
+oauth.start()
+```
+
+`start()` is idempotent, re-arms an instance you disposed, and reconciles before subscribing — so a
+`storageKey` set while the instance was inert is picked up rather than ignored.
+
+### Overriding a network call
+
+Every call (`refresh`, `revoke`, `authorize`, `userInfo`, …) can be replaced per instance, with no
 mutation of shared objects:
 
 ```ts
@@ -287,65 +398,10 @@ const oauth = createOAuth({
 })
 ```
 
-### Ignoring paths
+## SSR
 
-`oauth.fetch` attaches the bearer to every request it makes, as does the axios adapter's interceptor.
-Register the paths they must skip:
-
-```ts
-oauth.ignorePath(/\/public\//)
-```
-
-### Calling your own API
-
-`oauth.fetch` is `fetch` with the bearer attached. It refreshes an expired token before the call, skips
-the paths you registered above, and records a 401's body on the token so a session the IdP invalidated
-behind your back surfaces as an error rather than as a token that looks fine and fails everything:
-
-```ts
-const orders = await oauth.fetch('/api/orders').then(r => r.json())
-```
-
-In a component, `useOAuthFetch()`. If you are building the request with something else, take the header
-instead — `useOAuthAuthHeaders()`, or `oauth.authHeaders(url)`, which is `{}` when there is no token or
-the URL is ignored, so it can be spread unconditionally:
-
-```ts
-await myClient.get('/api/orders', { headers: { ...(await oauth.authHeaders('/api/orders')) } })
-```
-
-#### axios
-
-If your own requests want interceptors, `react-oauth-oidc/axios` has them. It is the only entry that
-imports axios, which is why the dependency is optional:
-
-```ts
-import { createAxiosClient, createAxiosInterceptors } from 'react-oauth-oidc/axios'
-
-// a client with both interceptors attached
-export const api = createAxiosClient(oauth, { baseURL: '/api' })
-
-// or attach them to a client you already have
-const { authorizationInterceptor, unauthorizedInterceptor } = createAxiosInterceptors(oauth)
-existing.interceptors.request.use(authorizationInterceptor)
-existing.interceptors.response.use(response => response, unauthorizedInterceptor)
-```
-
-The adapter takes the instance rather than calling a hook, so it works outside React too. In a component,
-keep the client stable:
-
-```ts
-const oauth = useOAuthInstance()
-const api = useMemo(() => createAxiosClient(oauth), [oauth])
-```
-
-Create one client per OAuth instance, never a shared default — on the server, two concurrent requests
-sharing interceptors means one request's bearer on another request's call.
-
-### SSR
-
-Create **one instance per request** — instances are fully isolated (token, config, watchers,
-transport) — hand it to `<OAuthProvider>`, and dispose it when the render is done:
+Create **one instance per request** — instances are fully isolated (token, config, watchers, transport) —
+hand it to `<OAuthProvider>`, and dispose it when the render is done:
 
 ```tsx
 export const render = async (url: string) => {
@@ -366,42 +422,34 @@ export const render = async (url: string) => {
 }
 ```
 
-`<OAuthProvider>` is required — the hooks resolve their instance from context and nothing else, and they
-throw when it is missing. That is what makes concurrent SSR safe by construction: with no ambient
-pointer, there is nothing that could hand one request another request's token.
-
 `oauthCallback()` no-ops on the server: the `code_verifier` lives in the browser's storage, and a
 server-side exchange without it would still burn the single-use authorization code at the IdP — the
 client's own exchange would then fail with `invalid_grant`.
 
+Hydration needs no special handling. The token comes from `localStorage`, so the token and user hooks
+report signed-out during the server pass *and* during the hydration render, then re-render once React
+re-reads the store — no mismatch, and no gate that blanks the UI until an effect runs.
+
 The library never imports `node:async_hooks`; it stays runtime-agnostic.
 
-## Configuration
+## Legacy grants
 
-| option | default | meaning |
-| --- | --- | --- |
-| `config` | — | the provider/endpoint half: `issuerPath`, `clientId`, `clientSecret`, `scope`, `authorizePath`, `tokenPath`, `revokePath`, `logoutPath`, `userPath`, `introspectionPath`, `jwksUri`, `pkce`, `redirectUri`, `logoutRedirectUri` |
-| `storageKey` | `'token'` | the `localStorage` key the token is persisted under; changing it at runtime re-reads that key without writing to it |
-| `ignorePaths` | `[]` | request URL patterns the authorization interceptor skips |
-| `strictJwt` | `true` | verify the `id_token` against the JWKS; with it off, claims are parsed without verification |
-| `autoStart` | `true` | with `false`, building the instance observes nothing and hits no network until you call `start()` |
-| `functions` | — | per-instance overrides of the protocol layer |
+The **implicit** and **resource owner password credentials** grants are omitted from OAuth 2.1 and the
+Security Best Current Practice advises against both: implicit returns tokens in the URL fragment where
+they leak through history and referrers, and the password grant hands your application the user's actual
+credentials and cannot support MFA or federation.
 
-### Deferring the start
-
-`createOAuth()` normally arms itself: it subscribes to its own stores, and revalidates a stored token —
-which can mean a refresh request. That is usually what you want, but an instance is typically built at
-module scope, where it means a network call on import. `autoStart: false` builds an inert instance:
+They are still supported here, because plenty of deployed identity providers still only offer them. If you
+have a choice, use the authorization code grant with PKCE — it works for browser apps without a client
+secret, which is the reason implicit existed in the first place.
 
 ```ts
-export const oauth = createOAuth({ config: { /* ... */ }, autoStart: false })
+// implicit — deprecated
+login({ redirectUri, responseType: 'token' })
 
-// later, once whatever had to happen first has happened
-oauth.start()
+// resource owner password — deprecated
+login({ username, password })
 ```
-
-`start()` is idempotent, re-arms an instance you disposed, and reconciles before subscribing — so a
-`storageKey` set while the instance was inert is picked up rather than ignored.
 
 ## IdP examples
 
@@ -418,7 +466,7 @@ createOAuth({
 })
 ```
 
-### Azure AD
+### Microsoft Entra ID
 
 ```ts
 createOAuth({
@@ -438,13 +486,18 @@ createOAuth({
   config: {
     issuerPath: 'https://accounts.google.com',
     clientId: '<client>',
-    scope: 'openid profile email'
+    scope: 'openid profile email',
+    pkce: true
   }
 })
 ```
 
 Google needs `accessType: 'offline'` and `prompt: 'consent'` on the login parameters to return a refresh
-token.
+token:
+
+```ts
+login({ redirectUri, responseType: 'code', accessType: 'offline', prompt: 'consent' })
+```
 
 ## License
 

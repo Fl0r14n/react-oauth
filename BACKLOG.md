@@ -58,11 +58,11 @@ Worth doing for anything touching SSR or hydration, since the specs cannot see i
 
 ## Not done, deliberately
 
-### The OAuth 2.1 wording in the README
+### Dropping the implicit and resource-owner grants
 
-Reviewed and kept as-is: the library supports the implicit and resource-owner grants, and the README says
-so. (For the record, the 2.1 draft *omits* both rather than deprecating them, but supporting them is a
-defensible pragmatic choice and the docs are not misleading about what is on offer.)
+Kept deliberately: plenty of deployed IdPs still offer nothing else. The docs now mark both deprecated in
+the grant table and explain why in a Legacy grants section, rather than claiming "all four flows" next to
+a 2.1 compliance badge.
 
 ### `bun.lock` has drifted from the manifests
 
@@ -70,16 +70,24 @@ defensible pragmatic choice and the docs are not misleading about what is on off
 history — so the lockfile has not been recording at least some workspace deps. Moot for zustand now that
 it is gone, but worth understanding before trusting the lockfile for a release.
 
-## Never verified in a browser
+## Verification gaps
 
-Nothing in this branch was checked in a real browser — the Chrome tooling was unavailable throughout. The
-specs and the demo app's SSR response cover a lot, but two things would be worth a manual pass:
+No part of this branch was driven through a real browser — the Chrome tooling was unavailable throughout.
+The specs, the demo app's SSR response and a live check against Google cover most of it. Two gaps remain,
+both needing a human at a keyboard:
 
 - **Hydration with a stored token.** Seed `localStorage` with a token, reload, and confirm there is no
   hydration warning in the console and that the avatar switches to the filled icon after hydration. The
   spec asserts the server markup is byte-identical with and without a stored token, which is the same
   invariant, but it is not the same as watching React hydrate.
-- **A real IdP round trip.** `apps/app/.env` has no issuer configured, so no login flow — authorization
-  code with PKCE, the callback exchange, refresh, and hosted logout — has been run against a live
-  provider since these changes. Every one of them is covered by specs against a local server, which is
-  not the same thing.
+- **The half of the Google flow that needs a password.** Verified live against Google via
+  `.env.production`: discovery populates every endpoint, the authorize URL carries a valid S256
+  challenge, nonce, state and `access_type`/`prompt`, the verifier is persisted, `{ redirect: false }`
+  returns the URL without navigating, JWKS is reachable, and Google answers 302 to its sign-in page —
+  it accepts the request rather than rejecting it. The registered redirect URI is
+  `https://vite.local.dev:3000/oauth_callback`; `localhost` is not whitelisted and returns
+  `redirect_uri_mismatch`.
+
+  What is still unverified is everything after the user types a password: the code exchange, the refresh,
+  and hosted logout. Those need a real sign-in, which cannot be automated here. `bun run prod` serves the
+  app at `https://vite.local.dev:3000` with that config if you want to walk it through.
