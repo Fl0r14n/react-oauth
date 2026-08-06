@@ -35,6 +35,10 @@
       "types": "./dist/core.d.mts",
       "import": "./dist/core.mjs"
     },
+    "./axios": {
+      "types": "./dist/axios.d.mts",
+      "import": "./dist/axios.mjs"
+    },
     "./component": {
       "types": "./dist/component.d.mts",
       "import": "./dist/component.mjs"
@@ -61,6 +65,9 @@
     "react-dom": ">=18"
   },
   "peerDependenciesMeta": {
+    "axios": {
+      "optional": true
+    },
     "@emotion/react": {
       "optional": true
     },

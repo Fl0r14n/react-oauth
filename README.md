@@ -14,7 +14,8 @@ This repo is a Bun monorepo with two packages:
 
 - React 19, React Router, MUI (app + optional component entry)
 - Vite + optional Bun SSR (`Bun.serve` + Vite middleware)
-- a ~25-line in-house observable store for state, `axios` for transport, `jose` for JWKS verification
+- a ~25-line in-house observable store for state, `fetch` for transport, `jose` for JWKS verification
+- `axios` only in the optional `react-oauth-oidc/axios` adapter entry
 - `tsdown` for the library bundle (ESM, `.d.mts` types)
 - `bun:test` + happy-dom + Testing Library for the lib, `biome` for lint/format
 

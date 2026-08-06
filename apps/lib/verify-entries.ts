@@ -8,6 +8,7 @@ const read = (name: string) => readFileSync(`dist/${name}`, 'utf8')
 const core = read('core.mjs')
 const index = read('index.mjs')
 const component = read('component.mjs')
+const axiosAdapter = read('axios.mjs')
 
 const imports = (source: string) => [...source.matchAll(/^import\s.*?from\s*["']([^"']+)["']/gm)].map(m => m[1])
 
@@ -22,6 +23,23 @@ check(
   `core.mjs imports React — it must stay usable in a server component or a worker. Imports: ${imports(core).join(', ')}`
 )
 check(!core.includes('use client'), 'core.mjs carries a "use client" directive, which defeats the point of the entry')
+
+// axios is an optional peer, which only holds while exactly one entry imports it
+const importsAxios = (source: string) => imports(source).some(id => id === 'axios' || id.startsWith('axios/'))
+check(!importsAxios(core), 'core.mjs imports axios — it is meant to be a fetch-only core, and axios is an optional peer')
+check(!importsAxios(index), 'index.mjs imports axios — only the /axios entry may, or the optional peer becomes required')
+check(!importsAxios(component), 'component.mjs imports axios — only the /axios entry may')
+check(importsAxios(axiosAdapter), 'axios.mjs does not import axios — the adapter has inlined or lost it')
+// it needs only *types* from the core, which erase, so the right assertion is that nothing was inlined —
+// requiring a runtime import would fail for the good reason
+check(
+  !/\bconst (createOAuth|tokenState|createStore)\b/.test(axiosAdapter),
+  'axios.mjs has inlined part of the core instead of using its types'
+)
+check(
+  !imports(axiosAdapter).some(id => id === 'react' || id.startsWith('react/')),
+  'axios.mjs imports React — the adapter takes an instance so it can stay usable outside a component'
+)
 
 // the hooks and the component are client-only, and Next needs to be told
 check(index.startsWith('"use client"'), 'index.mjs is missing its leading "use client" directive')

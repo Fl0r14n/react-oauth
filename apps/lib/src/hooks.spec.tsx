@@ -8,7 +8,7 @@ import {
   useOAuthActions,
   useOAuthConfig,
   useOAuthError,
-  useOAuthHttp,
+  useOAuthFetch,
   useOAuthSelector,
   useOAuthStatus,
   useOAuthToken,
@@ -111,11 +111,11 @@ describe('useOAuthUser', () => {
   })
 })
 
-describe('useOAuthConfig / useOAuthHttp', () => {
-  it('exposes the live config and the instance axios client', () => {
+describe('useOAuthConfig / useOAuthFetch', () => {
+  it('exposes the live config and the instance transport', () => {
     let http: unknown
     const Probe = () => {
-      http = useOAuthHttp()
+      http = useOAuthFetch()
       return <span data-testid="k">{useOAuthConfig().storageKey}</span>
     }
     mount(<Probe />)
@@ -124,7 +124,7 @@ describe('useOAuthConfig / useOAuthHttp', () => {
     act(() => oauth.setStorageKey('tenant.token'))
 
     expect(screen.getByTestId('k').textContent).toBe('tenant.token')
-    expect(http).toBe(oauth.http)
+    expect(http).toBe(oauth.fetch)
     cleanup()
   })
 })

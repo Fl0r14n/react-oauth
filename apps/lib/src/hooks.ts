@@ -125,12 +125,12 @@ export const useOAuthConfig = () => {
   }
 }
 
-export const useOAuthHttp = () => useOAuthInstance().http
+/** `fetch` with the bearer attached — refreshes an expired token first, records a 401. Stable, so it is
+ * safe in a dependency array. */
+export const useOAuthFetch = () => useOAuthInstance().fetch
 
-export const useOAuthInterceptors = () => {
-  const { authorizationInterceptor, unauthorizedInterceptor } = useOAuthInstance()
-  return { authorizationInterceptor, unauthorizedInterceptor }
-}
+/** For a request you build yourself, with a client the library knows nothing about. */
+export const useOAuthAuthHeaders = () => useOAuthInstance().authHeaders
 
 export const useOAuthFunctions = () => useOAuthInstance().functions
 

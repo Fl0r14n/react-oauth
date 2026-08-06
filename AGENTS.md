@@ -35,7 +35,8 @@ apps/lib/src
   config.ts      the config store and its accessors
   storage.ts     localStorage-backed store with an explicit rekey
   token.ts       token state, expiry, refresh, discovery
-  http.ts        the axios instance and the two interceptors
+  http.ts        the authorized fetch and the Authorization header
+  axios.ts       ENTRY: the optional axios adapter — the only file importing axios
   jwt.ts         id_token parsing and JWKS verification
   flows.ts       login / logout / oauthCallback, PKCE, nonce
   user.ts        user from id_token claims or the userinfo endpoint
@@ -48,9 +49,10 @@ apps/lib/src
 apps/app         demo app: Vite + React Router + MUI + i18next, SSR via Bun.serve
 ```
 
-Three build entries, three separate builds — see `tsdown.config.ts`. `core` has no React in its graph and
+Four build entries, four separate builds — see `tsdown.config.ts`. `core` has no React in its graph and
 no directive, so it works in a route handler, a worker or a server component. `index` and `component` are
-`'use client'`, which is exactly why `core` needs an entry of its own.
+`'use client'`, which is exactly why `core` needs an entry of its own. `axios` is the only file that
+imports axios, which is what keeps that dependency optional.
 
 ## Things that will bite you
 
@@ -67,8 +69,9 @@ This class of mistake is invisible in the source and in the tests. `verify-entri
 bun --filter react-oauth-oidc build   # tsdown, then the entry invariants
 ```
 
-It asserts the core imports no React and carries no directive, that `index` and `component` both lead
-with `'use client'`, and that neither has inlined a copy of the core.
+It asserts the core imports neither React nor axios and carries no directive, that `index` and
+`component` both lead with `'use client'`, that only the `axios` entry imports axios, and that nothing
+has inlined a copy of the core.
 
 **Getters do not re-render.** The instance exposes getters (`oauth.isAuthorized()`) because the core must
 work outside React. Components must go through the hooks instead — a getter read in render happens once
@@ -77,8 +80,8 @@ and never updates. This is why `hooks.ts` subscribes to the stores even where it
 **There is no ambient instance.** `createOAuth` keeps no module-level pointer, and `useOAuthInstance`
 resolves from `<OAuthProvider>` or throws. That is deliberate: a last-one-wins global cannot be answered
 correctly while two SSR renders are in flight, and every consumer already holds the instance — React via
-the provider, everything else via the value `createOAuth` returned, whose `http` client already carries
-the interceptors. Do not reintroduce a pointer "for convenience".
+the provider, everything else via the value `createOAuth` returned, whose `fetch` already carries the
+bearer. Do not reintroduce a pointer "for convenience".
 
 **Specs should dispose their instances.** Bun runs every spec file in one process, and an instance whose
 config watcher is still live can fire a refresh against another test's mocks. Use the tracked factory

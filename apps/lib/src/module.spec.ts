@@ -116,8 +116,8 @@ describe('instance isolation', () => {
 
     expect(first.token().access_token).toBe('first')
     expect(second.token().access_token).toBe('second')
-    // separate axios instances: interceptors close over one request's token, never the other's
-    expect(first.http).not.toBe(second.http)
+    // separate authorized transports: each closes over one request's token, never the other's
+    expect(first.fetch).not.toBe(second.fetch)
   })
 
   it('exposes a writable token — a punch-out session assigns one directly', () => {

@@ -8,7 +8,7 @@ import type { OAuthFunctions, UserInfo } from './types'
 export const createUser = (
   { configStore, config }: Pick<ConfigContext, 'configStore' | 'config'>,
   { tokenStore, token, isAuthorized }: Pick<TokenContext, 'tokenStore' | 'token' | 'isAuthorized'>,
-  { http }: Pick<HttpContext, 'http'>,
+  { authorizedFetch }: Pick<HttpContext, 'authorizedFetch'>,
   functions: OAuthFunctions,
   jwt: Jwt
 ) => {
@@ -23,7 +23,7 @@ export const createUser = (
 
   const fetchUser = async () => {
     if (isAuthorized() && (config() as any)?.userPath) {
-      const usr = await functions.userInfo(config(), http)
+      const usr = await functions.userInfo(config(), authorizedFetch)
       if (usr) {
         userStore.setState({ user: usr })
       }

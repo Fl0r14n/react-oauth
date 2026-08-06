@@ -40,7 +40,7 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     autoconfigOauth,
     checkToken
   } = tokenContext
-  const { http, authorizationInterceptor, unauthorizedInterceptor } = httpContext
+  const { authHeaders, authorizedFetch } = httpContext
   const { stateStore, state, login, logout, oauthCallback } = flows
   const { userStore, user } = userContext
 
@@ -66,7 +66,8 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     isPathIgnored,
     strictJwt,
     functions,
-    http,
+    fetch: authorizedFetch,
+    authHeaders,
     tokenStore,
     token,
     setToken,
@@ -85,9 +86,7 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     logout,
     oauthCallback,
     checkToken,
-    autoconfigOauth,
-    authorizationInterceptor,
-    unauthorizedInterceptor
+    autoconfigOauth
   }
 
   // Construction itself is inert: no subscriptions, no network, nothing observed. That matters because

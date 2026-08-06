@@ -18,8 +18,10 @@ route loaders and services can use it directly. React enters only through the ho
 bun add react-oauth-oidc
 ```
 
-Peers: `react`, `react-dom`, `axios`. `@mui/material`, `@mui/icons-material` and `@emotion/*` are
-needed only for the optional `react-oauth-oidc/component` entry.
+Peers: `react` and `react-dom`. Nothing else is required — the protocol runs on `fetch`.
+
+`axios` is needed only for the optional `react-oauth-oidc/axios` entry, and `@mui/material`,
+`@mui/icons-material` and `@emotion/*` only for `react-oauth-oidc/component`.
 
 ### Entry points
 
@@ -27,6 +29,7 @@ needed only for the optional `react-oauth-oidc/component` entry.
 | --- | --- | --- |
 | `react-oauth-oidc` | everything: the hooks, the provider, and all of `/core` | `'use client'` |
 | `react-oauth-oidc/core` | the protocol layer only — `createOAuth`, the types, the store helpers | no React, no directive |
+| `react-oauth-oidc/axios` | the optional axios adapter — interceptors and a client factory | no React; needs the `axios` peer |
 | `react-oauth-oidc/component` | the optional MUI account menu | `'use client'`, needs the MUI peers |
 
 The root re-exports the core, so most apps only ever import from `react-oauth-oidc`. Reach for `/core`
@@ -45,7 +48,7 @@ import { createOAuth, isExpiredToken } from 'react-oauth-oidc/core'
 ```tsx
 import { createOAuth, OAuthProvider } from 'react-oauth-oidc'
 
-// created once, outside the component tree: the axios interceptors and any route loader need the
+// created once, outside the component tree: route loaders and your own services need the
 // instance before anything renders
 const oauth = createOAuth({
   config: {
@@ -127,8 +130,8 @@ const Profile = () => {
 | `useOAuthToken()` | `[token, setToken]` — the live token |
 | `useOAuthUser()` | the live `UserInfo` |
 | `useOAuthConfig()` | the live config and its setters |
-| `useOAuthHttp()` | the instance's axios client, interceptors attached |
-| `useOAuthInterceptors()` | the two interceptors, to attach to your own axios instance |
+| `useOAuthFetch()` | `fetch` with the bearer attached, refreshing first and recording a 401 |
+| `useOAuthAuthHeaders()` | the `Authorization` header, for a request you build yourself |
 | `useOAuthFunctions()` | the protocol layer, with your overrides applied |
 | `useOAuthInstance()` | the instance itself, for the cases the hooks do not cover |
 
@@ -166,7 +169,7 @@ selector to an empty token, so they hydrate without a mismatch and without any e
 render happens once and never updates — returning it from a hook put that trap in the most ergonomic
 path. Ask for it explicitly with `useOAuthInstance()` when you need it.
 
-Every hook subscribes and re-renders. **Outside React** — axios interceptors, route loaders, plain
+Every hook subscribes and re-renders. **Outside React** — route loaders, interceptors, plain
 services — hold on to the instance `createOAuth()` returned and call its getters:
 
 ```ts
@@ -180,8 +183,8 @@ if (oauth.isAuthorized()) {
 ```
 
 There is no `getActiveOAuth()` and no ambient "current instance". Everything that needs one already has
-it: React reads it from the provider, and your own modules import the value you exported. The instance's
-`http` client already carries both interceptors, so the common case needs no wiring at all.
+it: React reads it from the provider, and your own modules import the value you exported. `oauth.fetch`
+already attaches the bearer, so the common case needs no wiring at all.
 
 The getters are invisible to React, which is exactly why components must not use them — `oauth.isAuthorized()`
 in a component renders once and never updates.
@@ -286,17 +289,63 @@ const oauth = createOAuth({
 
 ### Ignoring paths
 
-The authorization interceptor attaches the bearer to every request on the instance's axios client.
-Register the ones it must skip:
+`oauth.fetch` attaches the bearer to every request it makes, as does the axios adapter's interceptor.
+Register the paths they must skip:
 
 ```ts
 oauth.ignorePath(/\/public\//)
 ```
 
+### Calling your own API
+
+`oauth.fetch` is `fetch` with the bearer attached. It refreshes an expired token before the call, skips
+the paths you registered above, and records a 401's body on the token so a session the IdP invalidated
+behind your back surfaces as an error rather than as a token that looks fine and fails everything:
+
+```ts
+const orders = await oauth.fetch('/api/orders').then(r => r.json())
+```
+
+In a component, `useOAuthFetch()`. If you are building the request with something else, take the header
+instead — `useOAuthAuthHeaders()`, or `oauth.authHeaders(url)`, which is `{}` when there is no token or
+the URL is ignored, so it can be spread unconditionally:
+
+```ts
+await myClient.get('/api/orders', { headers: { ...(await oauth.authHeaders('/api/orders')) } })
+```
+
+#### axios
+
+If your own requests want interceptors, `react-oauth-oidc/axios` has them. It is the only entry that
+imports axios, which is why the dependency is optional:
+
+```ts
+import { createAxiosClient, createAxiosInterceptors } from 'react-oauth-oidc/axios'
+
+// a client with both interceptors attached
+export const api = createAxiosClient(oauth, { baseURL: '/api' })
+
+// or attach them to a client you already have
+const { authorizationInterceptor, unauthorizedInterceptor } = createAxiosInterceptors(oauth)
+existing.interceptors.request.use(authorizationInterceptor)
+existing.interceptors.response.use(response => response, unauthorizedInterceptor)
+```
+
+The adapter takes the instance rather than calling a hook, so it works outside React too. In a component,
+keep the client stable:
+
+```ts
+const oauth = useOAuthInstance()
+const api = useMemo(() => createAxiosClient(oauth), [oauth])
+```
+
+Create one client per OAuth instance, never a shared default — on the server, two concurrent requests
+sharing interceptors means one request's bearer on another request's call.
+
 ### SSR
 
-Create **one instance per request** — instances are fully isolated (token, config, watchers, axios
-instance) — hand it to `<OAuthProvider>`, and dispose it when the render is done:
+Create **one instance per request** — instances are fully isolated (token, config, watchers,
+transport) — hand it to `<OAuthProvider>`, and dispose it when the render is done:
 
 ```tsx
 export const render = async (url: string) => {

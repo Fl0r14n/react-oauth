@@ -1,5 +1,8 @@
-import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import type { Subscribable } from './store'
+
+/** The standard `fetch` signature. The library's transport is a plain fetch so the core needs no HTTP
+ * client dependency; pass your own to intercept, instrument, or run it against a test double. */
+export type OAuthFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export type ClientCredentialConfig = {
   tokenPath: string
@@ -178,7 +181,8 @@ export interface OAuthFunctions {
   resourceOwnerLogin: (parameters: ResourceOwnerParameters, config?: ResourceOwnerConfig) => Promise<OAuthToken | undefined>
   clientCredentialLogin: (config?: ClientCredentialConfig) => Promise<OAuthToken | undefined>
   openIdConfiguration: (config?: Partial<OpenIdConfig>) => Promise<OpenIdConfiguration | undefined>
-  userInfo: (config?: Partial<OpenIdConfig>, instance?: AxiosInstance) => Promise<UserInfo | undefined>
+  /** `request` defaults to the instance's authorized fetch, so the bearer is already attached */
+  userInfo: (config?: Partial<OpenIdConfig>, request?: OAuthFetch) => Promise<UserInfo | undefined>
   introspect: (token?: OAuthToken, config?: Partial<OpenIdConfig>) => Promise<IntrospectInfo | undefined>
 }
 
@@ -207,7 +211,11 @@ export interface OAuth {
   functions: OAuthFunctions
 
   // --- token
-  http: AxiosInstance
+  /** `fetch` with the bearer attached, refreshing an expired token first and recording a 401 */
+  fetch: OAuthFetch
+  /** the `Authorization` header for a request you are building yourself; `{}` when there is none, or when
+   * the URL matches an ignored path */
+  authHeaders: (url?: string) => Promise<Record<string, string>>
   tokenStore: Subscribable<{ value: OAuthToken }>
   token: () => OAuthToken
   setToken: (token: OAuthToken) => void
@@ -234,6 +242,4 @@ export interface OAuth {
   oauthCallback: (url?: string | URL) => Promise<void>
   checkToken: () => Promise<void>
   autoconfigOauth: () => Promise<void>
-  authorizationInterceptor: (req: InternalAxiosRequestConfig) => Promise<InternalAxiosRequestConfig>
-  unauthorizedInterceptor: (error: any) => Promise<never>
 }
