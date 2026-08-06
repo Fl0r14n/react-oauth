@@ -1,5 +1,5 @@
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
-import type { StoreApi } from 'zustand/vanilla'
+import type { Subscribable } from './store'
 
 export type ClientCredentialConfig = {
   tokenPath: string
@@ -159,7 +159,9 @@ export interface OAuth {
   dispose: () => void
 
   // --- config
-  configStore: StoreApi<{ oauthConfig: OAuthConfig }>
+  // read-only on purpose: writes go through setOAuthConfig/setToken, which own persistence and the
+  // expires computation. A raw setState would bypass both.
+  configStore: Subscribable<{ oauthConfig: OAuthConfig }>
   oauthConfig: () => OAuthConfig
   setOAuthConfig: (config: Partial<OAuthConfig>) => void
   /** the provider/endpoint part of the config — what discovery fills in */
@@ -175,7 +177,7 @@ export interface OAuth {
 
   // --- token
   http: AxiosInstance
-  tokenStore: StoreApi<{ value: OAuthToken }>
+  tokenStore: Subscribable<{ value: OAuthToken }>
   token: () => OAuthToken
   setToken: (token: OAuthToken) => void
   type: () => OAuthType | undefined
@@ -187,11 +189,11 @@ export interface OAuth {
   errorDescription: () => string | undefined
 
   // --- user
-  userStore: StoreApi<{ user?: UserInfo }>
+  userStore: Subscribable<{ user?: UserInfo }>
   user: () => UserInfo | undefined
 
   // --- flows
-  stateStore: StoreApi<{ state?: string }>
+  stateStore: Subscribable<{ state?: string }>
   state: () => string | undefined
   login: (parameters?: OAuthParameters) => Promise<string | undefined>
   logout: (logoutRedirectUri?: string, state?: string) => Promise<void>

@@ -1,4 +1,5 @@
-import { createStore, type StoreApi } from 'zustand/vanilla'
+import { createStore } from 'zustand/vanilla'
+import type { Subscribable } from './store'
 
 const read = (key: string) => {
   const value = globalThis.localStorage?.getItem(key)
@@ -10,7 +11,7 @@ const write = (key: string, value: any) => {
 }
 
 export interface StorageStore<T> {
-  store: StoreApi<{ value: T }>
+  store: Subscribable<{ value: T }>
   get: () => T
   set: (value: T) => void
   /** re-point at another storage key: load that key's value without writing it back */
