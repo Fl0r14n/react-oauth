@@ -11,15 +11,15 @@
 
 > `PKCE` support for authorization code with code verification
 
-The protocol layer is plain functions over zustand vanilla stores and needs no React, so interceptors,
+The protocol layer is plain functions over small observable stores and needs no React, so interceptors,
 route loaders and services can use it directly. React enters only through the hooks and the provider.
 
 ```sh
 bun add react-oauth-oidc
 ```
 
-Peers: `react`, `react-dom`, `axios`, `zustand`. `@mui/material`, `@mui/icons-material` and `@emotion/*`
-are needed only for the optional `react-oauth-oidc/component` entry.
+Peers: `react`, `react-dom`, `axios`. `@mui/material`, `@mui/icons-material` and `@emotion/*` are
+needed only for the optional `react-oauth-oidc/component` entry.
 
 ## How to
 
@@ -111,6 +111,23 @@ if (isAuthorized()) {
 
 The getters are invisible to React, which is exactly why components must not use them — `oauth.isAuthorized()`
 in a component renders once and never updates.
+
+To react to changes outside React, subscribe to the instance's stores with `watchStore`, which fires only
+when the *selected* value changes:
+
+```ts
+import { getActiveOAuth, watchStore } from 'react-oauth-oidc'
+
+const oauth = getActiveOAuth()
+const unwatch = watchStore(oauth.tokenStore, state => state.value.access_token, accessToken => {
+  /* ... */
+})
+```
+
+The exposed stores (`tokenStore`, `configStore`, `userStore`, `stateStore`) are read-only: `getState` and
+`subscribe`, no `setState`. Writes go through `setToken` / `setConfig` / `setStorageKey`, which own
+persistence and the `expires` computation — a raw store write would skip both. `createStore` and
+`createStorageStore` are exported too, if you want stores of your own on the same primitives.
 
 ### The `<OAuth>` component
 

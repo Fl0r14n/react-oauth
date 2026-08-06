@@ -7,8 +7,10 @@ Working notes for this repo. See [README.md](README.md) for the user-facing vers
 `react-oauth-oidc`: an OAuth 2.1 / OpenID Connect library for React, plus a demo app that consumes it.
 All four grants (resource owner, implicit, authorization code, client credentials), OIDC, and PKCE.
 
-The core is deliberately React-free — plain functions over zustand vanilla stores — so interceptors,
-route loaders and services can use it. React only enters through `hooks.ts` and `provider.tsx`.
+The core is deliberately React-free — plain functions over the in-house observable stores in
+`store.ts` — so interceptors, route loaders and services can use it. React only enters through
+`hooks.ts` and `provider.tsx`, and `store.ts` must never import it: every core module imports
+`createStore` from there, so a React import would pull React into the whole core's graph.
 
 ## Toolchain
 
@@ -29,7 +31,7 @@ bun --filter react-oauth-oidc build
 apps/lib/src
   types.ts       protocol types + the OAuth interface
   functions.ts   every network call, overridable per instance
-  store.ts       watchStore (fires on selected-value change) + useStoreValue
+  store.ts       createStore + watchStore (fires on selected-value change) — no React import
   config.ts      the config store and its accessors
   storage.ts     localStorage-backed store with an explicit rekey
   token.ts       token state, expiry, refresh, discovery
