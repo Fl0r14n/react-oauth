@@ -122,14 +122,49 @@ const Profile = () => {
 
 | hook | gives you |
 | --- | --- |
-| `useAuth()` | `isLoggedIn`, `token`, `user`, `error`, `login`, `logout`, `oauth` — the one most components want |
+| `useAuth()` | `isLoggedIn`, `token`, `user`, `error`, `login`, `logout` — the one most components want |
 | `useOAuth()` | the derived protocol state (`status`, `isAuthorized`, `accessToken`, `error`, `state`, `config`) plus every action |
-| `useOAuthToken()` | `{ value, set }` — the live token |
+| `useOAuthToken()` | `[token, setToken]` — the live token |
 | `useOAuthUser()` | the live `UserInfo` |
 | `useOAuthConfig()` | the live config and its setters |
 | `useOAuthHttp()` | the instance's axios client, interceptors attached |
 | `useOAuthInterceptors()` | the two interceptors, to attach to your own axios instance |
 | `useOAuthFunctions()` | the protocol layer, with your overrides applied |
+| `useOAuthInstance()` | the instance itself, for the cases the hooks do not cover |
+
+#### Subscribe to less
+
+`useOAuth()` and `useOAuthToken()` re-render on *any* token write — including the nonce, the code
+verifier and the redirect URI stashed during a PKCE handshake, none of which a component usually cares
+about. When a component needs one fact, ask for that fact:
+
+| hook | re-renders when |
+| --- | --- |
+| `useIsAuthorized()` | the answer flips |
+| `useOAuthStatus()` | the status changes |
+| `useAccessToken()` | the header value changes |
+| `useOAuthError()` | the error changes |
+| `useOAuthSelector(fn)` | whatever `fn` returns changes |
+| `useOAuthActions()` | never — no subscription at all |
+
+```tsx
+// an avatar that only cares whether someone is signed in
+const Avatar = () => (useIsAuthorized() ? <UserIcon /> : <AnonIcon />)
+
+// a sign-out button that never re-renders
+const SignOut = () => {
+  const { logout } = useOAuthActions()
+  return <button onClick={() => logout()}>Sign out</button>
+}
+```
+
+`useOAuthSelector` must return a primitive or a reference that is stable for unchanged state — a fresh
+object every call re-renders forever. Every one of these derives its server value by applying the same
+selector to an empty token, so they hydrate without a mismatch and without any extra plumbing.
+
+`useAuth()` does not hand back the instance. The instance exposes getters, and a getter read during
+render happens once and never updates — returning it from a hook put that trap in the most ergonomic
+path. Ask for it explicitly with `useOAuthInstance()` when you need it.
 
 Every hook subscribes and re-renders. **Outside React** — axios interceptors, route loaders, plain
 services — hold on to the instance `createOAuth()` returned and call its getters:

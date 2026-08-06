@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 // by package name, not relatively: this entry is bundled with the core kept external, so a relative
 // import would inline a second copy of it. See AGENTS.md.
 import {
@@ -43,9 +43,68 @@ const serverToken = () => SERVER_TOKEN
 // the user is derived from the id_token, and `fetchUser` is async — neither resolves during a server pass
 const serverUser = () => undefined
 
-export const useOAuthToken = () => {
+/** Selects from the live token. The selected value is the snapshot, so a component re-renders only when
+ * *it* changes — subscribing to the whole token means a re-render for every nonce and verifier written
+ * during a PKCE handshake.
+ *
+ * The server value is the same selector applied to an empty token, which is what the server had, so
+ * anything built on this hydrates without a mismatch for free.
+ *
+ * Return a primitive, or a reference that is stable for unchanged state. A fresh object every call
+ * re-renders forever. */
+export const useOAuthSelector = <T>(selector: (token: OAuthToken) => T): T =>
+  useStoreValue(
+    useOAuthInstance().tokenStore,
+    state => selector(state.value),
+    () => selector(SERVER_TOKEN)
+  )
+
+/** Booleans and strings, so each re-renders only when its own value moves. Prefer these to `useOAuth()`
+ * when a component needs one fact — an avatar that only cares whether someone is signed in should not
+ * re-render because a code verifier was stashed. */
+export const useIsAuthorized = (): boolean => useOAuthSelector(token => tokenState(token).isAuthorized)
+export const useOAuthStatus = (): OAuthStatus => useOAuthSelector(token => tokenState(token).status)
+/** the `Authorization` header value, ready to send */
+export const useAccessToken = (): string | undefined => useOAuthSelector(token => tokenState(token).accessToken)
+export const useOAuthError = (): string | undefined => useOAuthSelector(token => tokenState(token).errorDescription)
+
+/** Every action, and nothing observed — a component that only signs in or out never re-renders on a token
+ * change. Stable across renders, so it is safe in a dependency array or behind `memo`. */
+export interface OAuthActions {
+  login: OAuth['login']
+  logout: OAuth['logout']
+  oauthCallback: OAuth['oauthCallback']
+  setToken: OAuth['setToken']
+  setConfig: OAuth['setConfig']
+  setStorageKey: OAuth['setStorageKey']
+  ignorePath: OAuth['ignorePath']
+  autoconfigOauth: OAuth['autoconfigOauth']
+  checkToken: OAuth['checkToken']
+}
+
+export const useOAuthActions = (): OAuthActions => {
+  const oauth = useOAuthInstance()
+  return useMemo(
+    () => ({
+      login: oauth.login,
+      logout: oauth.logout,
+      oauthCallback: oauth.oauthCallback,
+      setToken: oauth.setToken,
+      setConfig: oauth.setConfig,
+      setStorageKey: oauth.setStorageKey,
+      ignorePath: oauth.ignorePath,
+      autoconfigOauth: oauth.autoconfigOauth,
+      checkToken: oauth.checkToken
+    }),
+    [oauth]
+  )
+}
+
+/** `[token, setToken]`, like `useState` — the previous `{ value, set }` was a Vue ref wearing a React
+ * name. Re-renders on any token write; use {@link useOAuthSelector} to narrow. */
+export const useOAuthToken = (): [OAuthToken, OAuth['setToken']] => {
   const { tokenStore, setToken } = useOAuthInstance()
-  return { value: useStoreValue(tokenStore, state => state.value, serverToken), set: setToken }
+  return [useStoreValue(tokenStore, state => state.value, serverToken), setToken]
 }
 
 /** id_token claims, replaced by the `userinfo` response when a `userPath` is configured. */
@@ -129,9 +188,13 @@ export interface Auth {
   error?: string
   login: OAuth['login']
   logout: OAuth['logout']
-  oauth: OAuth
 }
 
+/** The one most components want. Deliberately does *not* hand back the instance: the instance exposes
+ * getters, and a getter read during render happens once and never updates again, so returning it from a
+ * hook put the trap inside the ergonomic path. A component that genuinely needs the instance — to reach
+ * `functions`, or to subscribe to a store by hand — can ask for it explicitly with `useOAuthInstance()`.
+ */
 export const useAuth = (): Auth => {
   const oauth = useOAuthInstance()
   const token = useStoreValue(oauth.tokenStore, state => state.value, serverToken)
@@ -144,7 +207,6 @@ export const useAuth = (): Auth => {
     user,
     error: errorDescription,
     login: oauth.login,
-    logout: oauth.logout,
-    oauth
+    logout: oauth.logout
   }
 }
