@@ -64,6 +64,30 @@ describe('config', () => {
     expect(oauth.isPathIgnored(undefined)).toBe(false)
   })
 
+  it('isPathIgnored matches an anchored pattern against the pathname of an absolute URL', () => {
+    const oauth = createOAuth({ ignorePaths: [/^\/public/] })
+
+    // the natural way to write this, and it never fired for an absolute URL when only the raw string
+    // was tested — `^` cannot match past `https://host`
+    expect(oauth.isPathIgnored('/public/products')).toBe(true)
+    expect(oauth.isPathIgnored('https://api.example.com/public/products')).toBe(true)
+    expect(oauth.isPathIgnored('https://api.example.com/orders')).toBe(false)
+  })
+
+  it('isPathIgnored still honours a pattern written against the host', () => {
+    const oauth = createOAuth({ ignorePaths: [/cdn\.example\.com/] })
+
+    // matching only the pathname instead would have silently broken this
+    expect(oauth.isPathIgnored('https://cdn.example.com/assets/logo.svg')).toBe(true)
+    expect(oauth.isPathIgnored('https://api.example.com/assets/logo.svg')).toBe(false)
+  })
+
+  it('isPathIgnored lets an end-anchored pattern past a query string', () => {
+    const oauth = createOAuth({ ignorePaths: [/^\/public$/] })
+
+    expect(oauth.isPathIgnored('https://api.example.com/public?page=2')).toBe(true)
+  })
+
   it('keeps config isolated between instances', () => {
     const first = createOAuth({ config: { clientId: 'first' } })
     const second = createOAuth({ config: { clientId: 'second' } })

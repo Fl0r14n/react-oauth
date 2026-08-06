@@ -17,6 +17,16 @@ export const createHttp = (
     return (bearer && { Authorization: bearer }) || {}
   }
 
+  /** `fetch` types these itself — including FormData's multipart boundary — so a Content-Type default
+   * over the top of one breaks the request. */
+  const bodyTypesItself = (body: unknown) =>
+    body instanceof FormData ||
+    body instanceof URLSearchParams ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    body instanceof ReadableStream ||
+    ArrayBuffer.isView(body)
+
   /** `fetch`, with the bearer attached and a 401 recorded.
    *
    * Storing the 401's body is what lets a session that the IdP has invalidated behind our back show up
@@ -26,6 +36,11 @@ export const createHttp = (
     const headers = new Headers(init?.headers)
     for (const [key, value] of Object.entries(await authHeaders(url))) {
       headers.set(key, value)
+    }
+    // the axios client this replaced defaulted to JSON, and dropping that silently would have changed
+    // what every existing call sends. Skipped for bodies fetch types better than we can.
+    if (!headers.has('Content-Type') && !bodyTypesItself(init?.body)) {
+      headers.set('Content-Type', 'application/json')
     }
 
     const response = await fetch(input, { ...init, headers })

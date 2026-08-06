@@ -7,7 +7,7 @@ registerOAuthCleanup()
 
 /** A real local server, so the assertions are about what was sent rather than about a mock's arguments. */
 let server: ReturnType<typeof Bun.serve>
-let seen: Array<{ url: string; authorization: string | null }>
+let seen: Array<{ url: string; authorization: string | null; contentType: string | null }>
 let respond: () => Response
 
 const origin = () => `http://localhost:${server.port}`
@@ -23,7 +23,11 @@ describe('authorized transport', () => {
     server ??= Bun.serve({
       port: 0,
       fetch: request => {
-        seen.push({ url: new URL(request.url).pathname, authorization: request.headers.get('authorization') })
+        seen.push({
+          url: new URL(request.url).pathname,
+          authorization: request.headers.get('authorization'),
+          contentType: request.headers.get('content-type')
+        })
         return respond()
       }
     })
@@ -65,7 +69,8 @@ describe('authorized transport', () => {
 
       await oauth.fetch(`${origin()}/api/orders`)
 
-      expect(seen).toEqual([{ url: '/api/orders', authorization: 'Bearer at' }])
+      expect(seen[0]?.url).toBe('/api/orders')
+      expect(seen[0]?.authorization).toBe('Bearer at')
     })
 
     it('does not send it to an ignored path', async () => {
@@ -74,6 +79,48 @@ describe('authorized transport', () => {
       await oauth.fetch(`${origin()}/api/public/products`)
 
       expect(seen[0]?.authorization).toBeNull()
+    })
+
+    it('defaults Content-Type to JSON, as the axios client it replaced did', async () => {
+      await oauth.fetch(`${origin()}/api/orders`, { method: 'POST', body: '{}' })
+
+      expect(seen[0]?.contentType).toBe('application/json')
+    })
+
+    it('does not override a Content-Type the caller set', async () => {
+      await oauth.fetch(`${origin()}/api/orders`, { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: 'a,b' })
+
+      expect(seen[0]?.contentType).toBe('text/csv')
+    })
+
+    it('leaves a FormData body to type itself, boundary included', async () => {
+      const body = new FormData()
+      body.set('file', 'contents')
+
+      await oauth.fetch(`${origin()}/api/upload`, { method: 'POST', body })
+
+      // defaulting to JSON here would strip the multipart boundary and break the upload
+      expect(seen[0]?.contentType).toContain('multipart/form-data')
+      expect(seen[0]?.contentType).toContain('boundary=')
+    })
+
+    it('leaves URLSearchParams to type itself', async () => {
+      await oauth.fetch(`${origin()}/api/orders`, { method: 'POST', body: new URLSearchParams({ a: 'b' }) })
+
+      expect(seen[0]?.contentType).toContain('application/x-www-form-urlencoded')
+    })
+
+    it('shares one refresh across concurrent calls', async () => {
+      refresh.mockResolvedValue({ access_token: 'fresh', token_type: 'Bearer', expires_in: 60 })
+      oauth.setConfig({ tokenPath: '/t', clientId: 'c' })
+      oauth.setToken({ access_token: 'stale', token_type: 'Bearer', refresh_token: 'r', expires: Date.now() - 10_000 })
+
+      await Promise.all([oauth.fetch(`${origin()}/api/a`), oauth.fetch(`${origin()}/api/b`), oauth.fetch(`${origin()}/api/c`)])
+
+      // three requests, one refresh — checkToken's in-flight guard is what stops a thundering herd of
+      // refreshes each invalidating the last one's refresh_token
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(seen.every(r => r.authorization === 'Bearer fresh')).toBe(true)
     })
 
     it('keeps the caller headers', async () => {
