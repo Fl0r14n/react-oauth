@@ -1,0 +1,7 @@
+**/dist/**
+**/node_modules/**
+**/.bun/**
+**/build/**
+**/out/**
+**/dist-ssr/**
+*.map

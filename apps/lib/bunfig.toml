@@ -1,0 +1,3 @@
+[test]
+# @testing-library/react needs a DOM; happy-dom registers one globally before any spec runs
+preload = ["./test-setup.ts"]

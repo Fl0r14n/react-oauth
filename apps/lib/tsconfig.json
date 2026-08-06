@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun", "react", "react-dom"],
+    "paths": {
+      // the component entry imports the core by package name so the bundler keeps it external;
+      // in-repo (type-check, tests) that name has to resolve back to the source
+      "react-oauth-oidc": ["./src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

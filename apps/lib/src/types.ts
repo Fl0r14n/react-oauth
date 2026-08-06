@@ -1,0 +1,203 @@
+import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
+import type { StoreApi } from 'zustand/vanilla'
+
+export type ClientCredentialConfig = {
+  tokenPath: string
+  revokePath?: string
+  clientId: string
+  clientSecret?: string
+  scope?: string
+  userPath?: string
+  introspectionPath?: string
+}
+
+export type ResourceOwnerConfig = ClientCredentialConfig
+
+export type ImplicitConfig = {
+  authorizePath: string
+  revokePath?: string
+  clientId: string
+  scope?: string
+  logoutPath?: string
+  redirectUri?: string // if not using OAuthParameters
+  logoutRedirectUri?: string // if not using OAuthParameters
+  userPath?: string
+}
+
+export type AuthorizationCodeConfig = ResourceOwnerConfig & {
+  authorizePath: string
+  logoutPath?: string
+  redirectUri?: string // if not using OAuthParameters
+  logoutRedirectUri?: string // if not using OAuthParameters
+}
+
+export type AuthorizationCodePKCEConfig = AuthorizationCodeConfig & {
+  pkce?: boolean
+}
+
+export type OpenIdConfig = AuthorizationCodePKCEConfig & {
+  issuerPath: string
+  jwksUri?: string
+}
+
+export type ResourceOwnerParameters = {
+  username: string
+  password: string
+}
+
+export type AuthorizationCodeParameters = {
+  accessType?: 'online' | 'offline'
+  prompt?: 'none' | 'consent' | 'login' | 'select_account'
+  redirectUri: string
+  responseType: OAuthType.IMPLICIT | OAuthType.AUTHORIZATION_CODE | string
+  state?: string
+}
+
+export type OAuthParameters = ResourceOwnerParameters | AuthorizationCodeParameters
+
+export type OAuthTypeConfig =
+  | OpenIdConfig
+  | AuthorizationCodePKCEConfig
+  | AuthorizationCodeConfig
+  | ImplicitConfig
+  | ResourceOwnerConfig
+  | ClientCredentialConfig
+
+export type OAuthConfig = {
+  config?: Partial<OAuthTypeConfig>
+  storageKey?: string
+  ignorePaths?: RegExp[]
+  strictJwt?: boolean
+  functions?: Partial<OAuthFunctions>
+
+  [x: string]: any
+}
+
+export enum OAuthType {
+  RESOURCE = 'password',
+  AUTHORIZATION_CODE = 'code',
+  IMPLICIT = 'token',
+  CLIENT_CREDENTIAL = 'client_credentials'
+}
+
+export type OAuthToken = {
+  id_token?: string
+  access_token?: string
+  refresh_token?: string
+  token_type?: string
+  state?: string
+  error?: string
+  error_description?: string
+  expires_in?: number | string
+  refresh_expires_in?: number | string
+  scope?: string
+  code_verifier?: string
+  nonce?: string
+  type?: OAuthType
+  expires?: number
+  code?: string
+
+  [x: string]: any
+}
+
+export enum OAuthStatus {
+  NOT_AUTHORIZED = 'NOT_AUTHORIZED',
+  AUTHORIZED = 'AUTHORIZED',
+  DENIED = 'DENIED'
+}
+
+export type OpenIdConfiguration = {
+  issuer?: string
+  authorization_endpoint?: string
+  introspection_endpoint?: string
+  token_endpoint?: string
+  userinfo_endpoint?: string
+  end_session_endpoint?: string
+  revocation_endpoint?: string
+  jwks_uri?: string
+  scopes_supported?: string[]
+  code_challenge_methods_supported?: string[]
+}
+
+export type UserInfo = {
+  email?: string
+  email_verified?: boolean
+  family_name?: string
+  given_name?: string
+  name?: string
+  preferred_username?: string
+  sub?: string
+  address?: object
+  picture?: string
+  locale?: string
+
+  [x: string]: any
+}
+
+export type IntrospectInfo = UserInfo & {
+  active: boolean
+  scope: string
+  client_id?: string
+  username: string
+  exp: number
+}
+
+export interface OAuthFunctions {
+  refresh: (token?: OAuthToken, config?: Partial<OpenIdConfig>) => Promise<OAuthToken | undefined>
+  revoke: (token?: OAuthToken, config?: Partial<OpenIdConfig>) => Promise<void>
+  authorize: (token?: OAuthToken, config?: Partial<OpenIdConfig>) => Promise<OAuthToken | undefined>
+  resourceOwnerLogin: (parameters: ResourceOwnerParameters, config?: ResourceOwnerConfig) => Promise<OAuthToken | undefined>
+  clientCredentialLogin: (config?: ClientCredentialConfig) => Promise<OAuthToken | undefined>
+  openIdConfiguration: (config?: Partial<OpenIdConfig>) => Promise<OpenIdConfiguration | undefined>
+  userInfo: (config?: Partial<OpenIdConfig>, instance?: AxiosInstance) => Promise<UserInfo | undefined>
+  introspect: (token?: OAuthToken, config?: Partial<OpenIdConfig>) => Promise<IntrospectInfo | undefined>
+}
+
+export interface OAuth {
+  /** stops every watcher and clears the module pointer if it points here. On SSR, call it per request
+   * once the render is done. */
+  dispose: () => void
+
+  // --- config
+  configStore: StoreApi<{ oauthConfig: OAuthConfig }>
+  oauthConfig: () => OAuthConfig
+  setOAuthConfig: (config: Partial<OAuthConfig>) => void
+  /** the provider/endpoint part of the config — what discovery fills in */
+  config: () => Partial<OAuthTypeConfig> | undefined
+  setConfig: (config?: Partial<OAuthTypeConfig>) => void
+  storageKey: () => string
+  setStorageKey: (key: string) => void
+  /** register a path the authorization interceptor must skip — idempotent */
+  ignorePath: (pattern: RegExp) => void
+  isPathIgnored: (url?: string) => boolean
+  strictJwt: () => boolean | undefined
+  functions: OAuthFunctions
+
+  // --- token
+  http: AxiosInstance
+  tokenStore: StoreApi<{ value: OAuthToken }>
+  token: () => OAuthToken
+  setToken: (token: OAuthToken) => void
+  type: () => OAuthType | undefined
+  accessToken: () => string | undefined
+  status: () => OAuthStatus
+  isAuthorized: () => boolean
+  error: () => string | undefined
+  hasError: () => boolean
+  errorDescription: () => string | undefined
+
+  // --- user
+  userStore: StoreApi<{ user?: UserInfo }>
+  user: () => UserInfo | undefined
+
+  // --- flows
+  stateStore: StoreApi<{ state?: string }>
+  state: () => string | undefined
+  login: (parameters?: OAuthParameters) => Promise<string | undefined>
+  logout: (logoutRedirectUri?: string, state?: string) => Promise<void>
+  oauthCallback: (url?: string | URL) => Promise<void>
+  checkToken: () => Promise<void>
+  autoconfigOauth: () => Promise<void>
+  authorizationInterceptor: (req: InternalAxiosRequestConfig) => Promise<InternalAxiosRequestConfig>
+  unauthorizedInterceptor: (error: any) => Promise<never>
+}

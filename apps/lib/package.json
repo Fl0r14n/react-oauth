@@ -1,0 +1,90 @@
+{
+  "name": "react-oauth-oidc",
+  "version": "1.0.0",
+  "author": "Fl0r14n <florian.chis@gmail.com>",
+  "homepage": "https://github.com/Fl0r14n/react-oauth",
+  "description": "A fully OAuth2.1 compliant react library",
+  "license": "MIT",
+  "keywords": [
+    "react",
+    "react19",
+    "oauth",
+    "oauth2",
+    "oidc",
+    "pkce",
+    "authorization",
+    "openid",
+    "openid connect"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fl0r14n/react-oauth"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.mjs",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./component": {
+      "types": "./dist/component.d.mts",
+      "import": "./dist/component.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "bun test",
+    "type-check": "tsc --noEmit",
+    "publish": "bun run build && bun publish"
+  },
+  "dependencies": {
+    "jose": "^6"
+  },
+  "peerDependencies": {
+    "@emotion/react": "^11",
+    "@emotion/styled": "^11",
+    "@mui/icons-material": ">=6",
+    "@mui/material": ">=6",
+    "axios": "^1",
+    "react": ">=18",
+    "react-dom": ">=18",
+    "zustand": "^5"
+  },
+  "peerDependenciesMeta": {
+    "@emotion/react": {
+      "optional": true
+    },
+    "@emotion/styled": {
+      "optional": true
+    },
+    "@mui/icons-material": {
+      "optional": true
+    },
+    "@mui/material": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@emotion/react": "latest",
+    "@emotion/styled": "latest",
+    "@happy-dom/global-registrator": "latest",
+    "@mui/icons-material": "latest",
+    "@mui/material": "latest",
+    "@testing-library/react": "latest",
+    "@types/bun": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "axios": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tsdown": "latest",
+    "typescript": "latest",
+    "zustand": "latest"
+  }
+}
