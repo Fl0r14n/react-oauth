@@ -219,36 +219,43 @@ persistence and the `expires` computation — a raw store write would skip both.
 
 ## Calling your own API
 
-`oauth.fetch` is `fetch` with the bearer attached. It refreshes an expired token before the call — sharing
-one refresh across concurrent calls rather than starting a stampede — and records a 401's body on the
-token, so a session the IdP invalidated behind your back surfaces as an error instead of a token that
-looks fine and fails everything:
+Attaching the bearer to your own requests works either way — pick by what your app already uses:
+
+| you use | reach for | needs |
+| --- | --- | --- |
+| `fetch` | `oauth.fetch` / `useOAuthFetch()` | nothing, it is the default |
+| axios | `createAxiosClient()` from `react-oauth-oidc/axios` | the `axios` peer |
+| something else | `oauth.authHeaders(url)` / `useOAuthAuthHeaders()` | nothing |
+
+All three refresh an expired token before the call — sharing one refresh across concurrent calls rather
+than starting a stampede — and honour [Skipping public paths](#skipping-public-paths).
+
+### Without axios
+
+`oauth.fetch` is `fetch` with the bearer attached. It also records a 401's body on the token, so a session
+the IdP invalidated behind your back surfaces as an error instead of a token that looks fine and fails
+everything:
 
 ```ts
 const orders = await oauth.fetch('/api/orders').then(r => r.json())
 ```
 
-In a component, `useOAuthFetch()`. If you are building the request with something else, take the header
-instead — `useOAuthAuthHeaders()`, or `oauth.authHeaders(url)`, which is `{}` when there is no token or
-the URL is ignored, so it can be spread unconditionally:
+In a component, `useOAuthFetch()`. It defaults `Content-Type` to `application/json`, and leaves a
+`FormData`, `URLSearchParams`, `Blob` or stream body to type itself so an upload keeps its multipart
+boundary.
+
+If you are building the request with a client the library knows nothing about, take the header instead.
+`oauth.authHeaders(url)` is `{}` when there is no token or the URL is ignored, so it spreads
+unconditionally:
 
 ```ts
 await myClient.get('/api/orders', { headers: { ...(await oauth.authHeaders('/api/orders')) } })
 ```
 
-### Skipping public paths
+### With axios
 
-Register the request URLs that must not carry a bearer. Patterns are tested against the URL as given and
-against its pathname, so an anchored pattern works for a relative path and an absolute URL alike:
-
-```ts
-oauth.ignorePath(/^\/public\//)
-```
-
-### axios
-
-If your own requests want interceptors, `react-oauth-oidc/axios` has them. It is the only entry that
-imports axios, which is why the dependency is optional:
+`react-oauth-oidc/axios` has the interceptors. It is the only entry that imports axios, which is why the
+dependency is optional — apps on `fetch` never install it:
 
 ```ts
 import { createAxiosClient, createAxiosInterceptors } from 'react-oauth-oidc/axios'
@@ -272,6 +279,19 @@ const api = useMemo(() => createAxiosClient(oauth), [oauth])
 
 Create one client per OAuth instance, never a shared default — on the server, two concurrent requests
 sharing interceptors means one request's bearer on another request's call.
+
+Nothing else in the library touches axios: the protocol calls (`refresh`, `revoke`, the token exchange,
+discovery, `userinfo`) are on `fetch` regardless of which you pick here.
+
+### Skipping public paths
+
+Register the request URLs that must not carry a bearer. Applies to `oauth.fetch`, `authHeaders` and the
+axios interceptor alike. Patterns are tested against the URL as given and against its pathname, so an
+anchored pattern works for a relative path and an absolute URL alike:
+
+```ts
+oauth.ignorePath(/^\/public\//)
+```
 
 ## UI
 
