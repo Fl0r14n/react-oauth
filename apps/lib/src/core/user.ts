@@ -1,5 +1,5 @@
 import type { ConfigContext } from './config'
-import type { HttpContext } from './http'
+import type { FetchContext } from './fetch'
 import type { Jwt } from './jwt'
 import { createStore, watchStore } from './store'
 import type { TokenContext } from './token'
@@ -8,7 +8,7 @@ import type { OAuthFunctions, UserInfo } from './types'
 export const createUser = (
   { configStore, config }: Pick<ConfigContext, 'configStore' | 'config'>,
   { tokenStore, token, isAuthorized }: Pick<TokenContext, 'tokenStore' | 'token' | 'isAuthorized'>,
-  { authorizedFetch }: Pick<HttpContext, 'authorizedFetch'>,
+  { oauthFetch }: Pick<FetchContext, 'oauthFetch'>,
   functions: OAuthFunctions,
   jwt: Jwt
 ) => {
@@ -23,7 +23,7 @@ export const createUser = (
 
   const fetchUser = async () => {
     if (isAuthorized() && (config() as any)?.userPath) {
-      const usr = await functions.userInfo(config(), authorizedFetch)
+      const usr = await functions.userInfo(config(), oauthFetch)
       if (usr) {
         userStore.setState({ user: usr })
       }

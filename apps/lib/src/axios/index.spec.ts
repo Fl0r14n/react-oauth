@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from 'bun:test'
-import { createAxiosClient, createAxiosInterceptors } from './axios'
-import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
-import type { OAuth } from './types'
+import type { OAuth } from '../core/types'
+import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
+import { createAxiosClient, createAxiosInterceptors } from './index'
 
 const local = installStorage()
 registerOAuthCleanup()
@@ -72,6 +72,17 @@ describe('axios adapter', () => {
       // bookkeeping, not error handling — the caller still sees the failure
       await expect(unauthorizedInterceptor(error)).rejects.toBe(error)
       expect(oauth.token()).toEqual({ error: 'invalid_token' })
+    })
+
+    it('clears the session when the 401 body is not an object', async () => {
+      oauth.setToken({ access_token: 'at' })
+      const { unauthorizedInterceptor } = createAxiosInterceptors(oauth)
+      // axios hands the body over as a string when the gateway answers with HTML or nothing at all, and a
+      // string stored as the token would make every getter read a character index
+      const error = { response: { status: 401, data: '<html>401</html>' } }
+
+      await expect(unauthorizedInterceptor(error)).rejects.toBe(error)
+      expect(oauth.token()).toEqual({})
     })
 
     it('ignores other statuses', async () => {

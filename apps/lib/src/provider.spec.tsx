@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { act, cleanup, render, screen } from '@testing-library/react'
+import { OAuthType } from './core/types'
 import { useAuth } from './hooks'
 import { OAuthProvider } from './provider'
 import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
-import { OAuthType } from './types'
 
 installStorage()
 registerOAuthCleanup()

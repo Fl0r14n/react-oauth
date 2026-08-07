@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { mockOAuthFunctions } from '../test-utils'
 import { createOAuth } from './module'
-import { mockOAuthFunctions } from './test-utils'
 import { type OAuthConfig, OAuthStatus, type OAuthToken, OAuthType, type UserInfo } from './types'
 
 /** Mostly compile-time. `tsc --noEmit` covers src/**, so a `@ts-expect-error` here fails the build if

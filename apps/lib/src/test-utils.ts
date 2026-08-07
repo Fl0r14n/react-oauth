@@ -1,6 +1,6 @@
 import { afterEach, jest } from 'bun:test'
-import { createOAuth as create } from './module'
-import type { OAuth, OAuthConfig, OAuthFunctions } from './types'
+import { createOAuth as create } from './core/module'
+import type { OAuth, OAuthConfig, OAuthFunctions } from './core/types'
 
 /** Shared spec helpers. Not part of the published build — `tsdown` only follows the two entry points. */
 

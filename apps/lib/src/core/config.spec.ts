@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from 'bun:test'
+import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
 import { defaultOAuthFunctions } from './functions'
-import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
 
 const local = installStorage()
 registerOAuthCleanup()

@@ -1,7 +1,7 @@
 import { createConfig } from './config'
+import { createFetch } from './fetch'
 import { createFlows } from './flows'
 import { defaultOAuthFunctions } from './functions'
-import { createHttp } from './http'
 import { createJwt } from './jwt'
 import { createToken, isExpiredToken } from './token'
 import type { OAuth, OAuthConfig } from './types'
@@ -24,9 +24,9 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
   const functions = { ...defaultOAuthFunctions, ...cfg?.functions }
   const jwt = createJwt(configContext)
   const tokenContext = createToken(configContext, functions)
-  const httpContext = createHttp(configContext, tokenContext)
+  const fetchContext = createFetch(configContext, tokenContext)
   const flows = createFlows(configContext, tokenContext, functions, jwt)
-  const userContext = createUser(configContext, tokenContext, httpContext, functions, jwt)
+  const userContext = createUser(configContext, tokenContext, fetchContext, functions, jwt)
 
   const { configStore, oauthConfig, setOAuthConfig, config, setConfig, ignorePath, isPathIgnored, storageKey, setStorageKey, strictJwt } =
     configContext
@@ -44,7 +44,7 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     autoconfigOauth,
     checkToken
   } = tokenContext
-  const { authHeaders, authorizedFetch } = httpContext
+  const { authHeaders, oauthFetch } = fetchContext
   const { stateStore, state, login, logout, oauthCallback } = flows
   const { userStore, user } = userContext
 
@@ -70,7 +70,7 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     isPathIgnored,
     strictJwt,
     functions,
-    fetch: authorizedFetch,
+    fetch: oauthFetch,
     authHeaders,
     tokenStore,
     token,

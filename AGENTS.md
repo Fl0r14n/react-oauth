@@ -31,29 +31,31 @@ bun --filter react-oauth-oidc build
 
 ```
 apps/lib/src
-  types.ts       protocol types + the OAuth interface
-  functions.ts   every network call, overridable per instance
-  store.ts       createStore + watchStore (fires on selected-value change) — no React import
-  config.ts      the config store and its accessors
-  storage.ts     localStorage-backed store with an explicit rekey
-  token.ts       token state, expiry, refresh, discovery
-  http.ts        the authorized fetch and the Authorization header
-  axios.ts       ENTRY: the optional axios adapter — the only file importing axios
-  jwt.ts         id_token parsing and JWKS verification
-  flows.ts       login / logout / oauthCallback, PKCE, nonce
-  user.ts        user from id_token claims or the userinfo endpoint
-  module.ts      createOAuth — no module-level state of any kind
-  core.ts        ENTRY: the React-free surface, published as react-oauth-oidc/core
+  core/          ENTRY: the React-free surface, published as react-oauth-oidc/core
+    types.ts       protocol types + the OAuth interface
+    functions.ts   every network call, overridable per instance
+    store.ts       createStore + watchStore (fires on selected-value change) — no React import
+    config.ts      the config store and its accessors
+    storage.ts     localStorage-backed store with an explicit rekey
+    token.ts       token state, expiry, refresh, discovery
+    fetch.ts       the authorized fetch and the Authorization header
+    jwt.ts         id_token parsing and JWKS verification
+    flows.ts       login / logout / oauthCallback, PKCE, nonce
+    user.ts        user from id_token claims or the userinfo endpoint
+    module.ts      createOAuth — no module-level state of any kind
+    index.ts       the entry barrel
+  axios/         ENTRY: the optional axios adapter — the only folder importing axios
+  component/     ENTRY: the optional MUI account menu, 'use client'
   provider.tsx   <OAuthProvider> and instance resolution
   hooks.ts       the React bindings — everything here subscribes
+  form.ts        the resource-owner form binding
   index.ts       ENTRY: the package root — core re-exported + the React bindings, 'use client'
-  component/     ENTRY: the optional MUI account menu, 'use client'
 apps/app         demo app: Vite + React Router + MUI + i18next, SSR via Bun.serve
 ```
 
 Four build entries, four separate builds — see `tsdown.config.ts`. `core` has no React in its graph and
 no directive, so it works in a route handler, a worker or a server component. `index` and `component` are
-`'use client'`, which is exactly why `core` needs an entry of its own. `axios` is the only file that
+`'use client'`, which is exactly why `core` needs an entry of its own. `axios/` is the only place that
 imports axios, which is what keeps that dependency optional.
 
 ## Things that will bite you

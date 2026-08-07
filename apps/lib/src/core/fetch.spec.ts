@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
+import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
 import type { OAuth } from './types'
 
 const local = installStorage()
@@ -7,7 +7,7 @@ registerOAuthCleanup()
 
 /** A real local server, so the assertions are about what was sent rather than about a mock's arguments. */
 let server: ReturnType<typeof Bun.serve>
-let seen: Array<{ url: string; authorization: string | null; contentType: string | null }>
+let seen: Array<{ url: string; authorization: string | null; contentType: string | null; accept: string | null }>
 let respond: () => Response
 
 const origin = () => `http://localhost:${server.port}`
@@ -26,7 +26,8 @@ describe('authorized transport', () => {
         seen.push({
           url: new URL(request.url).pathname,
           authorization: request.headers.get('authorization'),
-          contentType: request.headers.get('content-type')
+          contentType: request.headers.get('content-type'),
+          accept: request.headers.get('accept')
         })
         return respond()
       }
@@ -81,10 +82,30 @@ describe('authorized transport', () => {
       expect(seen[0]?.authorization).toBeNull()
     })
 
-    it('defaults Content-Type to JSON, as the axios client it replaced did', async () => {
+    it('defaults Content-Type to JSON for a request that has a body', async () => {
       await oauth.fetch(`${origin()}/api/orders`, { method: 'POST', body: '{}' })
 
       expect(seen[0]?.contentType).toBe('application/json')
+    })
+
+    it('sends no Content-Type on a bodyless request', async () => {
+      // the header describes a body that is not there, and a strict gateway may reject it
+      await oauth.fetch(`${origin()}/api/orders`)
+
+      expect(seen[0]?.contentType).toBeNull()
+    })
+
+    it('defaults Accept to JSON, body or not', async () => {
+      // Accept is what actually asks for JSON back — Content-Type never did
+      await oauth.fetch(`${origin()}/api/orders`)
+
+      expect(seen[0]?.accept).toBe('application/json')
+    })
+
+    it('does not override an Accept the caller set', async () => {
+      await oauth.fetch(`${origin()}/api/report.pdf`, { headers: { Accept: 'application/pdf' } })
+
+      expect(seen[0]?.accept).toBe('application/pdf')
     })
 
     it('does not override a Content-Type the caller set', async () => {
@@ -146,6 +167,19 @@ describe('authorized transport', () => {
       expect(await response.json()).toEqual({ error: 'invalid_token' })
       expect(oauth.token()).toEqual({ error: 'invalid_token' })
       expect(oauth.hasError()).toBe(true)
+    })
+
+    it('clears the session on a 401 with no JSON body, without rejecting', async () => {
+      oauth.setToken({ access_token: 'at' })
+      // a gateway's HTML 401. There is no error to keep, and none is invented — but the unparseable body
+      // must not turn the caller's request into a rejection
+      respond = () => new Response('<html>401</html>', { status: 401, headers: { 'Content-Type': 'text/html' } })
+
+      const response = await oauth.fetch(`${origin()}/api/orders`)
+
+      expect(response.status).toBe(401)
+      expect(oauth.token()).toEqual({})
+      expect(oauth.isAuthorized()).toBe(false)
     })
 
     it('leaves the token alone on other statuses', async () => {

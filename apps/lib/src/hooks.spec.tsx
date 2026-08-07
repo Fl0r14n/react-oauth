@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
+import { createStore } from './core/store'
+import { type OAuth, OAuthStatus, OAuthType, type ResourceOwnerConfig } from './core/types'
 import {
   useAccessToken,
   useIsAuthorized,
@@ -16,9 +18,7 @@ import {
   useStoreValue
 } from './hooks'
 import { OAuthProvider } from './provider'
-import { createStore } from './store'
 import { createOAuth, flush, idToken, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
-import { type OAuth, OAuthStatus, OAuthType, type ResourceOwnerConfig } from './types'
 
 const local = installStorage()
 registerOAuthCleanup()

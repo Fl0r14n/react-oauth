@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance, type CreateAxiosDefaults, type InternalAxiosRequestConfig } from 'axios'
-import type { OAuth } from './types'
+import type { OAuth } from '../core/types'
 
 /** The axios adapter, published as `react-oauth-oidc/axios`.
  *
@@ -22,12 +22,14 @@ export const authorizationInterceptor =
     return req
   }
 
-/** Records a 401's body on the token, so a session the IdP invalidated behind our back surfaces as an
- * error instead of a token that looks fine and fails every call. Re-rejects: this is not error handling,
- * it is bookkeeping. */
+/** Stores a 401's body as the new token state, so a session the IdP invalidated behind our back surfaces
+ * as an error instead of a token that looks fine and fails every call — see the same branch in the core's
+ * `fetch.ts`. Re-rejects: this is not error handling, it is bookkeeping. */
 export const unauthorizedInterceptor = (oauth: OAuth) => (error: any) => {
   if (error?.response?.status === 401) {
-    oauth.setToken(error.response.data)
+    // axios hands `data` over as a string when the body is HTML or empty, and a string is not token state
+    const { data } = error.response
+    oauth.setToken((typeof data === 'object' && data) || {})
   }
   return Promise.reject(error)
 }

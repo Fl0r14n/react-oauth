@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
+import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
 import { isExpiredToken } from './token'
 import { type AuthorizationCodePKCEConfig, type OAuth, OAuthStatus, OAuthType } from './types'
 

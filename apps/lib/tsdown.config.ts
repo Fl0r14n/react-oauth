@@ -16,7 +16,7 @@ const USE_CLIENT = { banner: "'use client'" }
 
 export default defineConfig([
   {
-    entry: { core: 'src/core.ts' },
+    entry: { core: 'src/core/index.ts' },
     outDir: 'dist',
     format: 'esm',
     deps: { neverBundle: ['axios'] },
@@ -34,7 +34,7 @@ export default defineConfig([
   },
   {
     // the only entry that imports axios, which is why the dependency is optional
-    entry: { axios: 'src/axios.ts' },
+    entry: { axios: 'src/axios/index.ts' },
     outDir: 'dist',
     format: 'esm',
     deps: { neverBundle: ['react-oauth-oidc/core', 'axios'] },

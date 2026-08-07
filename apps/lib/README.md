@@ -232,17 +232,20 @@ than starting a stampede — and honour [Skipping public paths](#skipping-public
 
 ### Without axios
 
-`oauth.fetch` is `fetch` with the bearer attached. It also records a 401's body on the token, so a session
-the IdP invalidated behind your back surfaces as an error instead of a token that looks fine and fails
-everything:
+`oauth.fetch` is `fetch` with the bearer attached. A 401's body becomes the new token state, so the
+`{error, error_description}` an IdP returns for a session it invalidated behind your back surfaces
+through `error()` instead of leaving a token that looks fine and fails everything. A body that is empty
+or is not JSON clears the session and records nothing — no error is invented on your server's behalf:
 
 ```ts
 const orders = await oauth.fetch('/api/orders').then(r => r.json())
 ```
 
-In a component, `useOAuthFetch()`. It defaults `Content-Type` to `application/json`, and leaves a
-`FormData`, `URLSearchParams`, `Blob` or stream body to type itself so an upload keeps its multipart
-boundary.
+In a component, `useOAuthFetch()`. It defaults `Accept` to `application/json` on every request, and
+`Content-Type` to `application/json` only when there is a body to describe — a `FormData`,
+`URLSearchParams`, `Blob` or stream body is left to type itself, so an upload keeps its multipart
+boundary. Set either header yourself and it is kept, which is how you fetch a PDF or an HTML fragment
+through the same transport.
 
 If you are building the request with a client the library knows nothing about, take the header instead.
 `oauth.authHeaders(url)` is `{}` when there is no token or the URL is ignored, so it spreads

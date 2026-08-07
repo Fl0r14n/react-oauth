@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
+import { installStorage } from '../test-utils'
 import { createStorageStore } from './storage'
-import { installStorage } from './test-utils'
 
 const local = installStorage()
 

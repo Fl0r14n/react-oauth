@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { type OAuth, OAuthType } from './core/types'
 import { useOAuthForm } from './form'
 import { OAuthProvider } from './provider'
 import { createOAuth, flush, installStorage, mockOAuthFunctions, registerOAuthCleanup } from './test-utils'
-import { type OAuth, OAuthType } from './types'
 
 const local = installStorage()
 registerOAuthCleanup()

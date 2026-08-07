@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { createOAuth, installStorage, mockOAuthFunctions as mocked, registerOAuthCleanup } from './test-utils'
+import { createOAuth, installStorage, mockOAuthFunctions as mocked, registerOAuthCleanup } from '../test-utils'
 import { type OAuth, type OAuthConfig, OAuthType } from './types'
 
 const local = installStorage()

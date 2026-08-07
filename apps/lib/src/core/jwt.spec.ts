@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
+import { idToken } from '../test-utils'
 import { createJwt } from './jwt'
-import { idToken } from './test-utils'
 
 // no jwksUri + strictJwt off → the local parseJwt path is exercised
 const jwt = createJwt({ config: () => ({}) as any, strictJwt: () => false })
