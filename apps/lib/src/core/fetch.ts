@@ -18,16 +18,6 @@ export const createFetch = (
     return (bearer && { Authorization: bearer }) || {}
   }
 
-  /** `fetch` types these itself — including FormData's multipart boundary — so a Content-Type default
-   * over the top of one breaks the request. */
-  const bodyTypesItself = (body: unknown) =>
-    body instanceof FormData ||
-    body instanceof URLSearchParams ||
-    body instanceof Blob ||
-    body instanceof ArrayBuffer ||
-    body instanceof ReadableStream ||
-    ArrayBuffer.isView(body)
-
   /** `fetch`, with the bearer attached and a 401's body stored as the new token state.
    *
    * The body *is* the token state, deliberately: an IdP answers a 401 with an RFC 6749
@@ -45,10 +35,13 @@ export const createFetch = (
     for (const [key, value] of Object.entries(await authHeaders(url))) {
       headers.set(key, value)
     }
-    // Content-Type describes the body being sent, so it is only set when there is one — on a bodyless GET
-    // it says nothing, and a strict gateway may reject it. The axios client this replaced defaulted the
-    // same way, off the request data. Skipped for bodies fetch types better than we can.
-    if (init?.body !== undefined && init.body !== null && !headers.has('Content-Type') && !bodyTypesItself(init.body)) {
+    // Only a string body needs help. The platform extracts `text/plain;charset=UTF-8` from one, so the
+    // ordinary `body: JSON.stringify(x)` would go out mislabelled and a strict API answers 415. Every
+    // typed body — FormData, Blob, URLSearchParams, ArrayBuffer, a stream — already carries a
+    // Content-Type of its own, and defaulting over it would cost a FormData its multipart boundary.
+    // Testing for the one shape we can improve rather than listing the ones we must not touch means a
+    // body type nobody thought of falls through instead of being mislabelled.
+    if (typeof init?.body === 'string' && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json')
     }
     // Accept is the header that actually asks for JSON back, and an OAuth-protected endpoint is an API

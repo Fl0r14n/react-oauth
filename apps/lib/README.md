@@ -242,10 +242,10 @@ const orders = await oauth.fetch('/api/orders').then(r => r.json())
 ```
 
 In a component, `useOAuthFetch()`. It defaults `Accept` to `application/json` on every request, and
-`Content-Type` to `application/json` only when there is a body to describe — a `FormData`,
-`URLSearchParams`, `Blob` or stream body is left to type itself, so an upload keeps its multipart
-boundary. Set either header yourself and it is kept, which is how you fetch a PDF or an HTML fragment
-through the same transport.
+`Content-Type` to `application/json` for a **string** body — the platform would otherwise send your
+`JSON.stringify(…)` as `text/plain`. A `FormData`, `URLSearchParams`, `Blob` or stream body already
+carries its own type and is left alone, so an upload keeps its multipart boundary. Set either header
+yourself and it is kept, which is how you fetch a PDF or an HTML fragment through the same transport.
 
 If you are building the request with a client the library knows nothing about, take the header instead.
 `oauth.authHeaders(url)` is `{}` when there is no token or the URL is ignored, so it spreads

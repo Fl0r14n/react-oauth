@@ -82,7 +82,8 @@ describe('authorized transport', () => {
       expect(seen[0]?.authorization).toBeNull()
     })
 
-    it('defaults Content-Type to JSON for a request that has a body', async () => {
+    it('defaults Content-Type to JSON for a string body', async () => {
+      // the platform would label this text/plain, which a strict API answers 415 to
       await oauth.fetch(`${origin()}/api/orders`, { method: 'POST', body: '{}' })
 
       expect(seen[0]?.contentType).toBe('application/json')
@@ -120,9 +121,16 @@ describe('authorized transport', () => {
 
       await oauth.fetch(`${origin()}/api/upload`, { method: 'POST', body })
 
-      // defaulting to JSON here would strip the multipart boundary and break the upload
+      // defaulting to JSON here would strip the multipart boundary and break the upload — a non-string
+      // body is left alone precisely so this cannot happen
       expect(seen[0]?.contentType).toContain('multipart/form-data')
       expect(seen[0]?.contentType).toContain('boundary=')
+    })
+
+    it('leaves a Blob to keep the type it was created with', async () => {
+      await oauth.fetch(`${origin()}/api/upload`, { method: 'POST', body: new Blob(['a,b'], { type: 'text/csv' }) })
+
+      expect(seen[0]?.contentType).toBe('text/csv')
     })
 
     it('leaves URLSearchParams to type itself', async () => {
