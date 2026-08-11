@@ -410,16 +410,25 @@ user their email as well — and stops showing field errors, so the emptied pass
 | `autoStart` | `true` | with `false`, building the instance observes nothing and hits no network until you call `start()` |
 | `functions` | — | per-instance overrides of the protocol layer |
 
-There is no index signature, so a misspelled option is a compile error rather than a silently ignored one.
-Fields of your own are named through the type parameter:
+`OAuthConfig` has **no index signature**, so a misspelled option is a compile error rather than a silently
+ignored one — and so is a provider field set at the wrong level (`scope` belongs in `config`; up here it
+would reach nothing). Fields of your own are named through the type parameter:
 
 ```ts
 const config: OAuthConfig<{ tenant: string }> = { config: { /* ... */ }, tenant: 'acme' }
 const oauth = createOAuth(config)
 ```
 
-`OAuthToken<TExtra>` and `UserInfo<TClaims>` do the same for provider-specific token fields and custom
-claims:
+`OAuthToken` and `UserInfo` are the opposite — **open**, because the IdP writes them, not you. RFC 6749
+§5.1 lets an authorization server return additional parameters, and a claim set is whatever your provider
+issues, so anything it sends is readable without a cast:
+
+```ts
+oauth.token().session_state          // Keycloak
+oauth.user()?.['urn:custom:tenant']  // whatever your IdM adds
+```
+
+`TExtra` / `TClaims` still name the ones you use, for autocomplete and as documentation:
 
 ```ts
 const { groups } = oauth.user() as UserInfo<{ groups: string[] }>

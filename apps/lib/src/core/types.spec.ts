@@ -3,9 +3,12 @@ import { mockOAuthFunctions } from '../test-utils'
 import { createOAuth } from './module'
 import { type OAuthConfig, OAuthStatus, type OAuthToken, OAuthType, type UserInfo } from './types'
 
-/** Mostly compile-time. `tsc --noEmit` covers src/**, so a `@ts-expect-error` here fails the build if
- * the error it expects stops happening — which is the only way to pin a *tightening*. Without these,
- * putting an `[x: string]: any` index signature back would break nothing and no one would notice. */
+/** Mostly compile-time. `tsc --noEmit` covers src/**, so a `@ts-expect-error` here fails the build if the
+ * error it expects stops happening — the only way to pin a *tightening*.
+ *
+ * The asymmetry these pin is deliberate: `OAuthToken` and `UserInfo` are open, because an IdP may send
+ * whatever it likes and the value arrives parsed off the wire. `OAuthConfig` is closed, because you write
+ * it by hand and a misspelled option has nothing else to catch it. */
 
 describe('OAuthType / OAuthStatus', () => {
   it('are plain values, usable without a value import for the type', () => {
@@ -45,13 +48,11 @@ describe('OAuthToken', () => {
     expect(mid.redirect_uri).toBe('https://app/cb')
   })
 
-  it('rejects what used to be silently accepted', () => {
-    // @ts-expect-error a typo'd field is a typo, not a provider extension
-    const typo: OAuthToken = { access_tokn: 'at' }
-    expect(typo).toBeDefined()
-
-    const token: OAuthToken = { access_token: 'at' }
-    // @ts-expect-error reading an undeclared claim needs the type parameter
+  it('accepts whatever else the provider sends', () => {
+    // an IdP's own fields are not typos: Keycloak sends session_state, OCC sends customerId
+    const token: OAuthToken = { access_token: 'at', session_state: 'abc', customerId: 'cust-1' }
+    expect(token.session_state).toBe('abc')
+    // reachable without the type parameter — that is what the index signature is for
     expect(token.groups).toBeUndefined()
   })
 })
@@ -64,10 +65,9 @@ describe('UserInfo', () => {
     expect(groups).toEqual(['admin'])
   })
 
-  it('still rejects undeclared claims without the parameter', () => {
-    const user: UserInfo = { sub: 'abc' }
-    // @ts-expect-error `groups` is not a standard OIDC claim
-    expect(user.groups).toBeUndefined()
+  it('accepts a claim set it has never heard of', () => {
+    const user: UserInfo = { sub: 'abc', groups: ['admin'], 'urn:custom:tenant': 'acme' }
+    expect(user.groups).toEqual(['admin'])
   })
 })
 
@@ -79,7 +79,7 @@ describe('OAuthConfig', () => {
     expect(tenant).toBe('acme')
   })
 
-  it('catches a misspelled option instead of ignoring it', () => {
+  it('catches a misspelled option instead of ignoring it — unlike the token, this one is hand-written', () => {
     // @ts-expect-error `storagekey` is not `storageKey` — previously indistinguishable from a real option
     const config: OAuthConfig = { storagekey: 'token' }
     expect(config).toBeDefined()

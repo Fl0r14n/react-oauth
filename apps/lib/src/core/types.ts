@@ -75,9 +75,6 @@ export type OAuthTypeConfig =
   | ResourceOwnerConfig
   | ClientCredentialConfig
 
-/** `TExtra` instead of an `[x: string]: any` index signature: the index signature turned every typo into
- * a valid config and erased autocomplete. Carry your own fields by naming them — `OAuthConfig<{ tenant:
- * string }>` — which also documents them. */
 export type OAuthConfig<TExtra = unknown> = {
   config?: Partial<OAuthTypeConfig>
   storageKey?: string
@@ -106,8 +103,11 @@ export type OAuthType = (typeof OAuthType)[keyof typeof OAuthType]
 /** The token as persisted, which is the IdP's response plus the few fields this library adds to carry a
  * flow across a redirect (`code_verifier`, `nonce`, `redirect_uri`, and the computed `expires`).
  *
- * Provider-specific claims go in `TExtra` — `OAuthToken<{ id_token_expires_in: number }>` — rather than
- * through an `any` index signature that silently accepted misspellings of the real fields. */
+ * Open on purpose. RFC 6749 §5.1 permits an authorization server to return additional parameters, and they
+ * arrive already parsed from a response body — there is no author here to protect from a typo, and closing
+ * the type only forces a cast at every read of a field your IdP genuinely sends. Name the ones you care
+ * about through `TExtra` — `OAuthToken<{ customerId: string }>` — for autocomplete; the index signature
+ * keeps the rest reachable. Contrast `OAuthConfig`, which you *do* write by hand. */
 export type OAuthToken<TExtra = unknown> = {
   id_token?: string
   access_token?: string
@@ -127,6 +127,8 @@ export type OAuthToken<TExtra = unknown> = {
   code?: string
   /** echoed back into the token exchange, which has to match the authorize request */
   redirect_uri?: string
+
+  [x: string]: any
 } & TExtra
 
 export const OAuthStatus = {
@@ -150,9 +152,9 @@ export type OpenIdConfiguration = {
   code_challenge_methods_supported?: string[]
 }
 
-/** The standard OIDC claims. Anything your IdP adds goes in `TClaims` —
- * `UserInfo<{ groups: string[] }>` — so those claims are typed at the point of use instead of being
- * `any` everywhere. */
+/** The standard OIDC claims, open for the rest: an IdP's claim set is its own, and these arrive parsed
+ * from an `id_token` or a `userinfo` response. Name what you use through `TClaims` —
+ * `UserInfo<{ groups: string[] }>` — to get it typed at the point of use. */
 export type UserInfo<TClaims = unknown> = {
   email?: string
   email_verified?: boolean
@@ -164,6 +166,8 @@ export type UserInfo<TClaims = unknown> = {
   address?: object
   picture?: string
   locale?: string
+
+  [x: string]: any
 } & TClaims
 
 export type IntrospectInfo = UserInfo & {
