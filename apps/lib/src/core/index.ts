@@ -1,11 +1,8 @@
 /** The protocol layer, with no React in its import graph — safe in a route handler, a worker, a server
- * component, or a plain service. Published as `react-oauth-oidc/core`.
+ * component or a plain service. Published as `react-oauth-oidc/core`.
  *
- * The package root re-exports all of this *and* the React bindings, but carries a `'use client'` banner
- * because of them. Import from here when the consumer is not a client component.
- *
- * Nothing reachable from this file may import `hooks.ts`, `provider.tsx` or `component/` — that is the
- * whole point, and `verify-entries.ts` (run as part of `bun run build`) checks it. */
+ * Nothing reachable from this file may import `hooks.ts`, `provider.tsx` or `component/`. That is the whole
+ * point of the entry, and `verify-entries.ts` (part of `bun run build`) enforces it. */
 export { defaultOAuthFunctions } from './functions'
 export * from './module'
 export { createStorageStore, type StorageStore } from './storage'

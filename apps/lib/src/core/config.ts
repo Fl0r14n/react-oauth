@@ -25,20 +25,13 @@ export const createConfig = (cfg?: OAuthConfig) => {
     }
   }
 
-  /** Tests the URL as given *and* its pathname, so an anchored `/^\/public/` works whether the caller
-   * passed `/public/x` or `https://api.example.com/public/x`. Matching only the raw string made anchored
-   * patterns silently never fire for absolute URLs; matching only the pathname would have broken patterns
-   * written against a host. Both is a superset of the old behaviour. */
   const isPathIgnored = (url?: string) => {
     const patterns = oauthConfig().ignorePaths ?? []
     if (!url || !patterns.length) return false
     const candidates = [url]
     try {
-      // the base makes a relative path parseable; it is never used for anything else
       candidates.push(new URL(url, 'http://localhost').pathname)
-    } catch {
-      /* not a parseable URL — the raw string is all there is to match */
-    }
+    } catch {}
     return patterns.some(pattern => candidates.some(candidate => pattern.test(candidate)))
   }
 

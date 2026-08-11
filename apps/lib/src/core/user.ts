@@ -15,21 +15,18 @@ export const createUser = (
   const userStore = createStore<{ user?: UserInfo }>({})
   const user = () => userStore.getState().user
 
-  /** Guards against a late landing: `userInfo` and `jwt` are both async, so a response belonging to a
-   * session that has since ended would otherwise re-populate the profile after it was cleared. Every
-   * run takes a ticket and drops its result if another run started meanwhile. */
+  /** `userInfo` and `jwt` are async, so a response belonging to a session that has since ended would
+   * otherwise re-populate the profile after it was cleared. Every run takes a ticket and drops its result
+   * if another started meanwhile. */
   let generation = 0
 
-  /** Rebuilds the profile from whatever the session currently is.
+  /** Rebuilds the profile from whatever the session currently is — one function, because clearing is not a
+   * special case: a token going away has to take the profile with it, or a signed-out app still renders
+   * the previous user. `logout()` without a redirect, a 401 and a failed refresh all land here.
    *
-   * One function rather than a filler and a separate clearer, because clearing is not a special case: a
-   * token going away has to take the profile with it, or a signed-out app still renders the previous
-   * user's name and avatar. `logout()` without a redirect, a 401, and a refresh that failed all end here
-   * with nothing to derive from.
-   *
-   * The id_token is checked without regard to `isAuthorized` — its claims *are* the authentication, and
-   * a `response_type=id_token` flow never produces an access token at all. A `userinfo` response wins
-   * over the claims when both are available, which is the order the two sources are written in below. */
+   * The id_token is checked without regard to `isAuthorized`: its claims *are* the authentication, and a
+   * `response_type=id_token` flow never produces an access token. A `userinfo` response wins over the
+   * claims, which is the order the two are written in below. */
   const sync = async () => {
     const mine = ++generation
     const stale = () => mine !== generation

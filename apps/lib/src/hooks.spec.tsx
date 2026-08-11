@@ -237,9 +237,8 @@ describe('useStoreValue', () => {
     const store = createStore({ a: 'initial' })
     const Probe = () => <span>{useStoreValue(store, state => state.a)}</span>
 
-    // stands in for a token restored from storage or a config filled in by discovery — written after
-    // the store was built but before renderToString. Passing a creation-time getServerSnapshot, which
-    // is what zustand's own useStore does, would render 'initial' here.
+    // stands in for a token restored from storage or a config filled in by discovery — written after the
+    // store was built but before renderToString. A creation-time getServerSnapshot renders 'initial' here.
     store.setState({ a: 'written after creation' })
 
     expect(renderToString(<Probe />)).toContain('written after creation')

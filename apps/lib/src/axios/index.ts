@@ -1,15 +1,11 @@
 import axios, { type AxiosInstance, type CreateAxiosDefaults, type InternalAxiosRequestConfig } from 'axios'
 import type { OAuth } from '../core/types'
 
-/** The axios adapter, published as `react-oauth-oidc/axios`.
+/** The axios adapter, published as `react-oauth-oidc/axios`. The only place axios is imported, which is
+ * what keeps that dependency optional.
  *
- * The core speaks `fetch` and has no HTTP client dependency — axios used to be a required peer for every
- * consumer, including the ones who never touched it. This entry keeps the ergonomics for apps that do
- * want interceptors, and it is the only place axios is imported, so the dependency is optional.
- *
- * React-free on purpose: pass the instance in. In a component that means
- * `useMemo(() => createAxiosClient(useOAuthInstance()), [oauth])`, which keeps the client stable without
- * this entry needing to know about React at all. */
+ * React-free: pass the instance in. Build the client next to the instance in your bootstrap, so every
+ * caller shares one — and any interceptor added to it. */
 
 /** Attaches the bearer, refreshing an expired token first, and skips URLs registered with
  * `oauth.ignorePath()`. */
@@ -22,9 +18,8 @@ export const authorizationInterceptor =
     return req
   }
 
-/** Stores a 401's body as the new token state, so a session the IdP invalidated behind our back surfaces
- * as an error instead of a token that looks fine and fails every call — see the same branch in the core's
- * `fetch.ts`. Re-rejects: this is not error handling, it is bookkeeping. */
+/** Stores a 401's body as the new token state — same branch as the core's `fetch.ts`. Re-rejects: this is
+ * bookkeeping, not error handling. */
 export const unauthorizedInterceptor = (oauth: OAuth) => (error: any) => {
   if (error?.response?.status === 401) {
     // axios hands `data` over as a string when the body is HTML or empty, and a string is not token state

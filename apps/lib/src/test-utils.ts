@@ -4,9 +4,8 @@ import type { OAuth, OAuthConfig, OAuthFunctions } from './core/types'
 
 /** Shared spec helpers. Not part of the published build — `tsdown` only follows the two entry points. */
 
-// Specs dispose what they create so watchers do not keep firing across tests — an instance whose
-// config watcher is still live can trigger a refresh against another test's mocks. Instances no longer
-// register anywhere globally, so a leak is a nuisance rather than a correctness problem.
+// Specs dispose what they create: bun runs every spec file in one process, and an instance whose config
+// watcher is still live can fire a refresh against another test's mocks.
 const live: OAuth[] = []
 
 /** Call at the top of every spec file using {@link createOAuth} — this module is cached, so a

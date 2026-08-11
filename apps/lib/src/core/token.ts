@@ -5,13 +5,6 @@ import { type OAuthFunctions, OAuthStatus, type OAuthToken, type OAuthType, type
 
 export const isExpiredToken = (token?: OAuthToken) => (token?.expires && Date.now() > token.expires) || false
 
-/** Everything derivable from a token, with no store and no instance involved.
- *
- * Pure on purpose: the instance getters and the React hooks are two different ways to reach the same
- * derivation, and they must not drift. The hooks in particular cannot call the getters — a getter reads
- * whatever the store holds *now*, which during hydration is the token restored from `localStorage`,
- * not the empty one the server rendered. Applying this to a subscribed snapshot keeps the two passes
- * agreeing. */
 export interface TokenState {
   type: OAuthType | undefined
   accessToken: string | undefined
@@ -28,10 +21,6 @@ export const tokenState = (token?: OAuthToken): TokenState => {
   const status = (error && OAuthStatus.DENIED) || (access_token && !expired && OAuthStatus.AUTHORIZED) || OAuthStatus.NOT_AUTHORIZED
   return {
     type,
-    // expiry-aware, like `status` beside it: an expired bearer is a guaranteed 401 that then lands in the
-    // token as the IdP's error and takes down a session the app might still have refreshed. `authHeaders`
-    // reads this *after* awaiting `checkToken`, so the only way to see undefined here is a token that
-    // could not be refreshed — in which case sending nothing is the honest request.
     accessToken: (token_type && access_token && !expired && `${token_type} ${access_token}`) || undefined,
     status,
     isAuthorized: status === OAuthStatus.AUTHORIZED,
@@ -119,8 +108,7 @@ export const createToken = (
   }
 
   // the raw `access_token`, not the derived `accessToken()`: that one is undefined once expired, which is
-  // exactly the case this has to refresh. A string, so identity comparison is enough as a watch source
-  // and a setExpires write cannot loop.
+  // exactly the case this has to refresh. A string, so a setExpires write cannot loop the watcher.
   const rawAccessToken = () => token()?.access_token
   const revalidate = () => {
     if (config() && rawAccessToken()) {
@@ -128,8 +116,7 @@ export const createToken = (
     }
   }
 
-  // Nothing above this point observes anything or touches the network. Subscribing and revalidating are
-  // deferred to start(), so constructing an instance is inert — see createOAuth.
+  // deferred to start() so constructing an instance is inert — see createOAuth
   let teardowns: Array<() => void> = []
 
   const start = () => {

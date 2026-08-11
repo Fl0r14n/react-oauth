@@ -7,18 +7,15 @@ import { createToken, isExpiredToken } from './token'
 import type { OAuth, OAuthConfig } from './types'
 import { createUser } from './user'
 
-/** One fully isolated instance: own config, token storage, axios instance and watchers. Create one per
- * request on the server and `dispose()` it when the render is done.
+/** One fully isolated instance: own config, token storage and watchers. Create one per request on the
+ * server and `dispose()` it when the render is done.
  *
- * There is deliberately no module-level pointer to "the current instance". Every consumer already has
- * one: React gets it from `<OAuthProvider>`, and non-React code (interceptors, loaders, services) holds
- * the value this returned — the axios client on it already carries the interceptors. A global pointer
- * would only add a second source of truth, and one that cannot be answered correctly under concurrent
- * SSR. */
-// deliberately not generic in the config's extra fields. A type parameter here would be *inferred* from
-// the argument, so `createOAuth({ storagekey: 'token' })` would infer the typo as a legitimate extra and
-// compile — which is the exact mistake the index signature used to allow. Annotate instead:
-// `const cfg: OAuthConfig<{ tenant: string }> = …`.
+ * There is no module-level pointer to "the current instance", deliberately — it could not be answered
+ * correctly under concurrent SSR, and every consumer already holds one: React through `<OAuthProvider>`,
+ * everything else through the value this returned. */
+// not generic in the config's extra fields: a type parameter here would be *inferred* from the argument, so
+// `createOAuth({ storagekey: 'token' })` would take the typo for a legitimate extra and compile. Annotate
+// instead — `const cfg: OAuthConfig<{ tenant: string }> = …`.
 export const createOAuth = (cfg?: OAuthConfig): OAuth => {
   const configContext = createConfig(cfg)
   const functions = { ...defaultOAuthFunctions, ...cfg?.functions }
@@ -93,12 +90,9 @@ export const createOAuth = (cfg?: OAuthConfig): OAuth => {
     autoconfigOauth
   }
 
-  // Construction itself is inert: no subscriptions, no network, nothing observed. That matters because
-  // an instance is normally built at module scope, where a side effect runs on import — before a test
-  // can install its mocks, and during an SSR pass that may only need the type.
-  //
-  // Default true, because the common case is "build it and use it" and making everyone remember a second
-  // call would be a worse API than the side effect was.
+  // Construction is inert — no subscriptions, no network — because an instance is normally built at module
+  // scope, where a side effect runs on import: before a test can install its mocks, and during an SSR pass
+  // that may only need the type.
   if (cfg?.autoStart !== false) {
     oauth.start()
   }

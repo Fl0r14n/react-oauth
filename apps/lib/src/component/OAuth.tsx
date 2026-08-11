@@ -22,9 +22,8 @@ import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import TextField from '@mui/material/TextField'
 import { type ReactNode, type SyntheticEvent, useState } from 'react'
-// by package name, never a relative path: this entry is bundled separately, so a relative import
-// inlines a second copy of the core — second module pointer, second React context — and the component
-// goes blind to the instance the app created
+// by package name, never a relative path: this entry is bundled separately, so a relative import inlines a
+// second copy of the core — a second React context — and the component goes blind to the app's instance
 import {
   type AuthorizationCodeParameters,
   type OAuthFieldError,
@@ -72,8 +71,7 @@ export type OAuthProps = Partial<ResourceOwnerParameters & AuthorizationCodePara
 
 const interpolate = (template: string, value: unknown) => template.replace('{0}', String(value))
 
-/** `useOAuthForm` reports error codes, not sentences — this is where they become words. A different skin
- * picks different words without the hook knowing about either. */
+/** `useOAuthForm` reports error codes, not sentences — this is where they become words. */
 const messageFor = (error: OAuthFieldError, required: string, tooLong: string, maxLength: number) =>
   (error === 'required' && required) || (error === 'tooLong' && interpolate(tooLong, maxLength)) || ''
 
@@ -86,12 +84,11 @@ const initialsOf = (user?: UserInfo) => {
 const displayName = (user: UserInfo | undefined, fallback: string) =>
   user?.name || user?.email || user?.preferred_username || user?.sub || fallback
 
-/** Account menu: the user's row when signed in, otherwise the right login affordance for the grant —
+/** Account menu: the user's row when signed in, otherwise the login affordance for the configured grant —
  * one button for the redirect flows, a username/password form for the resource-owner grant.
  *
- * Server-renders the signed-out view. The token comes from `localStorage`, so that is what the server
- * has; the hooks report it as signed-out during hydration too, then re-render once React re-reads the
- * store. No mount gate, and the markup is there from the first paint. */
+ * Server-renders the signed-out view, since the token comes from `localStorage`. The hooks report
+ * signed-out during hydration too, then re-render — no mount gate, markup present from the first paint. */
 export const OAuth = ({ labels, renderUserInfo, logoutRedirectUri, username, password, ...parameters }: OAuthProps) => {
   const t = { ...defaultOAuthLabels, ...labels }
   const isAuthorized = useIsAuthorized()

@@ -60,8 +60,6 @@ export const createFlows = (
 
   const toAuthorizationUrl = async (parameters: AuthorizationCodeParameters, redirect: boolean) => {
     const { authorizePath, clientId, scope = '', pkce: usePkce } = config() as any
-    // not only a config typo — with just an `issuerPath` set this comes from discovery, so a failed
-    // discovery lands here too. Without the check it dies on `authorizePath.includes`, naming nothing.
     if (!authorizePath) {
       throw new Error(
         '[react-oauth-oidc]: cannot start the authorization flow — no authorizePath. Set it explicitly, or set issuerPath so autoconfigOauth() can discover it (and check that the discovery request succeeded).'
@@ -87,16 +85,14 @@ export const createFlows = (
       params.set('code_challenge', pkcePair.code_challenge)
       params.set('code_challenge_method', 'S256')
     }
-    // a clean slate, not `{...token()}`: spreading carries a stale `error` from a dead session into
-    // the new attempt, so even a successful login comes back flagged as failed
     setToken({
       redirect_uri: parameters.redirectUri,
       ...(nonce && { nonce }),
       ...(pkcePair && { code_verifier: pkcePair.code_verifier })
     })
     const url = `${authorizePath}${authorizePath.includes('?') ? '&' : '?'}${params}`
-    // the verifier and nonce are persisted either way, so a caller that navigates itself — a router,
-    // Next's redirect() — gets a callback that still works
+    // the verifier and nonce are persisted either way, so a caller that navigates itself still gets a
+    // working callback
     if (redirect) {
       globalThis.location?.replace(url)
     }
@@ -141,8 +137,6 @@ export const createFlows = (
       if (logoutState) {
         params.set('state', logoutState)
       }
-      // cleared before navigating either way: the local session must not outlive the call, whoever
-      // ends up performing the navigation
       setToken({})
       const url = `${logoutPath}${logoutPath.includes('?') ? '&' : '?'}${params}`
       if (redirect) {
@@ -150,8 +144,6 @@ export const createFlows = (
       }
       return url
     } else {
-      // best-effort: revoke may reject (IdP answers 4xx for an already-invalid token) and the local
-      // session must go either way, or it lingers, 401s, and refills the token with the IdP's error
       try {
         await functions.revoke(token(), config())
       } finally {
@@ -159,16 +151,6 @@ export const createFlows = (
       }
     }
   }
-
-  // An authorization code is single-use, so the same redirect must be exchanged exactly once — and it
-  // arrives more than once in practice: StrictMode double-invokes effects in development, and a browser
-  // Back into the callback URL replays it in production. Keyed by the redirect's own parameters, so a
-  // repeat returns the first attempt's promise while a genuinely different redirect runs normally.
-  //
-  // Entries are kept rather than cleared on settle. Clearing would only cover the concurrent case, and
-  // re-exchanging a consumed code does not fail harmlessly — the IdP answers invalid_grant, which lands
-  // in the token as an error and takes down a session that had already succeeded.
-  const inFlight = new Map<string, Promise<void>>()
 
   const runCallback = async (search: string, hash: string) => {
     if (hash && /(access_token=)|(error=)/.test(hash)) {
@@ -190,6 +172,8 @@ export const createFlows = (
     await autoconfigOauth()
     await checkCode()
   }
+
+  const inFlight = new Map<string, Promise<void>>()
 
   const oauthCallback = async (url?: string | URL) => {
     // do not run in SSR, verifiers sit in the user's browser storage

@@ -10,15 +10,13 @@ export interface OAuthProviderProps {
   children?: ReactNode
 }
 
-/** The instance is deliberately not created here — interceptors and route loaders need it before
- * anything renders, so the app builds it and passes it in.
- *
- * Required. Context is the only way a hook resolves its instance, which is what makes concurrent SSR
- * safe: there is no ambient pointer that could hand one request another request's token. */
+/** The instance is not created here: interceptors and route loaders need it before anything renders, so the
+ * app builds it and passes it in. Context is the only way a hook resolves it, which is what makes
+ * concurrent SSR safe — no ambient pointer can hand one request another request's token. */
 export const OAuthProvider = ({ oauth, children }: OAuthProviderProps) => <OAuthContext value={oauth}>{children}</OAuthContext>
 
-/** Throws rather than falling back to an ambient instance — a missing provider is a wiring mistake, and
- * guessing at the instance is exactly what cannot be done correctly under concurrent SSR. */
+/** Throws rather than falling back to an ambient instance: a missing provider is a wiring mistake, and
+ * guessing cannot be done correctly under concurrent SSR. */
 export const useOAuthInstance = (): OAuth => {
   const oauth = useContext(OAuthContext)
   if (!oauth) {
