@@ -36,7 +36,7 @@ apps/lib/src
     functions.ts   every network call, overridable per instance
     store.ts       createStore + watchStore (fires on selected-value change) — no React import
     config.ts      the config store and its accessors
-    storage.ts     localStorage-backed store with an explicit rekey
+    storage.ts     localStorage-backed store: explicit rekey, cross-tab listen, best-effort IO
     token.ts       token state, expiry, refresh, discovery
     fetch.ts       the authorized fetch and the Authorization header
     jwt.ts         id_token parsing and JWKS verification
@@ -86,6 +86,30 @@ resolves from `<OAuthProvider>` or throws. That is deliberate: a last-one-wins g
 correctly while two SSR renders are in flight, and every consumer already holds the instance — React via
 the provider, everything else via the value `createOAuth` returned, whose `fetch` already carries the
 bearer. Do not reintroduce a pointer "for convenience".
+
+**`accessToken()` is expiry-aware; the refresh triggers must not be.** `tokenState` returns `undefined`
+for an expired token, so nothing sends a bearer that is a guaranteed 401. That makes it the wrong watch
+source for revalidation — it is empty in exactly the case that has to refresh. `token.ts` gates
+`revalidate()` and its watcher on the raw `token()?.access_token` for that reason. Swapping one for the
+other silently stops a stored-and-expired token from ever being refreshed, and `authHeaders` still looks
+fine because `checkToken` is awaited before the read.
+
+**Derived state has to clear, not just fill.** `user.ts` had two guarded fillers and no path that wrote
+`undefined`, so a profile outlived the session that produced it — visible after a `logout()` that does not
+navigate, a 401, or a failed refresh. One `sync()` owns fill *and* clear, and holds a generation counter
+because `userInfo`/`jwt` are async: a response in flight across a logout must not land. Anything else
+derived from the token needs the same shape.
+
+**Storage IO is best-effort and must stay that way.** `JSON.parse` in `read()` runs during
+`createStorageStore`, which runs during `createOAuth` — at module scope, where a throw means the app never
+renders. And `setItem` throws on an exceeded quota and in Safari's private mode, which would come out of
+`setToken`, i.e. out of `login`, `logout`, `oauthCallback` and the 401 handler. Both are wrapped; keep them
+wrapped.
+
+**Cross-tab sync lives in `storage.listen()`,** attached by `token.ts`'s `start()` and torn down by
+`dispose()` — not in the constructor, since construction is inert and SSR has no `addEventListener`. The
+handler re-reads the key rather than trusting `event.newValue` (one seeding path), and treats `key === null`
+(a `clear()`) as its own. The event fires only in *other* documents, so it cannot loop with our writes.
 
 **Specs should dispose their instances.** Bun runs every spec file in one process, and an instance whose
 config watcher is still live can fire a refresh against another test's mocks. Use the tracked factory

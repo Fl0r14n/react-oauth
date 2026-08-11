@@ -24,11 +24,15 @@ export interface TokenState {
 
 export const tokenState = (token?: OAuthToken): TokenState => {
   const { token_type, access_token, error, error_description, type } = token || {}
-  const status =
-    (error && OAuthStatus.DENIED) || (access_token && !isExpiredToken(token) && OAuthStatus.AUTHORIZED) || OAuthStatus.NOT_AUTHORIZED
+  const expired = isExpiredToken(token)
+  const status = (error && OAuthStatus.DENIED) || (access_token && !expired && OAuthStatus.AUTHORIZED) || OAuthStatus.NOT_AUTHORIZED
   return {
     type,
-    accessToken: (token_type && access_token && `${token_type} ${access_token}`) || undefined,
+    // expiry-aware, like `status` beside it: an expired bearer is a guaranteed 401 that then lands in the
+    // token as the IdP's error and takes down a session the app might still have refreshed. `authHeaders`
+    // reads this *after* awaiting `checkToken`, so the only way to see undefined here is a token that
+    // could not be refreshed — in which case sending nothing is the honest request.
+    accessToken: (token_type && access_token && !expired && `${token_type} ${access_token}`) || undefined,
     status,
     isAuthorized: status === OAuthStatus.AUTHORIZED,
     error,
@@ -114,9 +118,12 @@ export const createToken = (
     return inFlight
   }
 
-  // accessToken is a string, so identity comparison is enough and a setExpires write cannot loop
+  // the raw `access_token`, not the derived `accessToken()`: that one is undefined once expired, which is
+  // exactly the case this has to refresh. A string, so identity comparison is enough as a watch source
+  // and a setExpires write cannot loop.
+  const rawAccessToken = () => token()?.access_token
   const revalidate = () => {
-    if (config() && accessToken()) {
+    if (config() && rawAccessToken()) {
       void checkToken()
     }
   }
@@ -132,10 +139,12 @@ export const createToken = (
     // from the old key with the config claiming the new one
     storage.rekey(storageKey())
     teardowns = [
+      // another tab writing this key has to reach this one — see the note on `listen`
+      storage.listen(),
       // the storage key is runtime-mutable: a multi-tenant app gives each tenant its own token key
       watchStore(configStore, storageKey, key => storage.rekey(key)),
       watchStore(configStore, config, revalidate),
-      watchStore(storage.store, accessToken, revalidate)
+      watchStore(storage.store, rawAccessToken, revalidate)
     ]
     // a stored token may already be expired, and discovery may not have run yet
     revalidate()

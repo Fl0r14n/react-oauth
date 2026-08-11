@@ -220,6 +220,7 @@ export interface OAuth {
   token: () => OAuthToken
   setToken: (token: OAuthToken) => void
   type: () => OAuthType | undefined
+  /** `"<token_type> <access_token>"`, or `undefined` when there is none or it has expired */
   accessToken: () => string | undefined
   status: () => OAuthStatus
   isAuthorized: () => boolean

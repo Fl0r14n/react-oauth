@@ -113,6 +113,42 @@ describe('useOAuthForm', () => {
     cleanup()
   })
 
+  it('keeps the username when the IdP rejects the attempt', async () => {
+    functions.resourceOwnerLogin.mockResolvedValue({ error: 'invalid_grant', error_description: 'Bad credentials' })
+    mount(<Form />)
+    type('username', 'jane')
+    type('password', 'wrong')
+
+    await act(async () => {
+      screen.getByText('go').click()
+      await flush()
+    })
+
+    // mistyping a password should not cost the user their email as well
+    expect((screen.getByLabelText('username') as HTMLInputElement).value).toBe('jane')
+    expect((screen.getByLabelText('password') as HTMLInputElement).value).toBe('')
+    // and the field just emptied must not shout "required" over the IdP's own message
+    expect(state()[2]).toBe('hidden')
+    expect(state()[5]).toBe('Bad credentials')
+    cleanup()
+  })
+
+  it('clears the username too once the login succeeds', async () => {
+    functions.resourceOwnerLogin.mockResolvedValue({ access_token: 'ro', token_type: 'Bearer', type: OAuthType.RESOURCE })
+    mount(<Form />)
+    type('username', 'jane')
+    type('password', 'secret')
+
+    await act(async () => {
+      screen.getByText('go').click()
+      await flush()
+    })
+
+    expect((screen.getByLabelText('username') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('password') as HTMLInputElement).value).toBe('')
+    cleanup()
+  })
+
   it('surfaces the flow error, lets it be dismissed, and re-shows a new one', async () => {
     mount(<Form />)
     expect(state()[5]).toBe('-')

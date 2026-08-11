@@ -64,7 +64,7 @@ export const useOAuthSelector = <T>(selector: (token: OAuthToken) => T): T =>
  * re-render because a code verifier was stashed. */
 export const useIsAuthorized = (): boolean => useOAuthSelector(token => tokenState(token).isAuthorized)
 export const useOAuthStatus = (): OAuthStatus => useOAuthSelector(token => tokenState(token).status)
-/** the `Authorization` header value, ready to send */
+/** the `Authorization` header value, ready to send — `undefined` once the token has expired */
 export const useAccessToken = (): string | undefined => useOAuthSelector(token => tokenState(token).accessToken)
 export const useOAuthError = (): string | undefined => useOAuthSelector(token => tokenState(token).errorDescription)
 

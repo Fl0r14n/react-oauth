@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { createOAuth, flush, idToken, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
-import type { OAuth } from './types'
+import type { OAuth, UserInfo } from './types'
 
 const local = installStorage()
 registerOAuthCleanup()
@@ -48,6 +48,19 @@ describe('user', () => {
     expect(restored.user()).toEqual({ name: 'Restored' })
   })
 
+  it('fetches userinfo once per session change, not once per write', async () => {
+    userInfo.mockResolvedValue({ name: 'From Endpoint' })
+    oauth.setConfig({ userPath: '/userinfo' } as any)
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer', expires_in: 60 })
+    await flush()
+    // the id_token and the authorized flag are watched as one tuple, so a single token write is a single
+    // sync however many fields it moved — and checkToken's expires write does not move either of them
+    await oauth.checkToken()
+    await flush()
+
+    expect(userInfo).toHaveBeenCalledTimes(1)
+  })
+
   it('does not fetch userinfo without a userPath', async () => {
     oauth.setToken({ access_token: 'at', token_type: 'Bearer' })
 
@@ -65,6 +78,59 @@ describe('user', () => {
 
     expect(oauth.user()).toMatchObject({ name: 'Jane' })
     expect(second.user()).toBeUndefined()
+  })
+
+  it('clears the user when the token goes away', async () => {
+    oauth.setToken({ id_token: idToken({ name: 'Jane' }) })
+    await flush()
+    expect(oauth.user()).toMatchObject({ name: 'Jane' })
+
+    // what logout() without a redirect does, and what the 401 handler and a failed refresh do too
+    oauth.setToken({})
+    await flush()
+
+    expect(oauth.user()).toBeUndefined()
+  })
+
+  it('clears the user on a local logout', async () => {
+    userInfo.mockResolvedValue({ name: 'From Endpoint' })
+    oauth.setConfig({ userPath: '/userinfo' } as any)
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer' })
+    await flush()
+    expect(oauth.user()).toEqual({ name: 'From Endpoint' })
+
+    // no logoutPath configured, so this revokes locally instead of navigating away — the profile has to
+    // go with the session rather than waiting for a page load that never comes
+    await oauth.logout()
+    await flush()
+
+    expect(oauth.user()).toBeUndefined()
+  })
+
+  it('drops a userinfo response that arrives after the session ended', async () => {
+    let resolve: (user: UserInfo) => void = () => {}
+    userInfo.mockReturnValue(new Promise<UserInfo>(r => (resolve = r)))
+    oauth.setConfig({ userPath: '/userinfo' } as any)
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer' })
+    await flush()
+
+    oauth.setToken({})
+    await flush()
+    // the request was in flight across the logout: landing now would put the previous user straight back
+    resolve({ name: 'Too Late' })
+    await flush()
+
+    expect(oauth.user()).toBeUndefined()
+  })
+
+  it('keeps the id_token claims when there is no access token', async () => {
+    // a response_type=id_token flow never produces one, and the claims are the authentication
+    oauth.setToken({ id_token: idToken({ name: 'Claims Only' }) })
+
+    await flush()
+
+    expect(oauth.isAuthorized()).toBe(false)
+    expect(oauth.user()).toMatchObject({ name: 'Claims Only' })
   })
 
   it('stops updating once disposed', async () => {

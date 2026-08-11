@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { createOAuth, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
+import { createOAuth, flush, installStorage, mockOAuthFunctions, registerOAuthCleanup } from '../test-utils'
 import { isExpiredToken } from './token'
 import { type AuthorizationCodePKCEConfig, type OAuth, OAuthStatus, OAuthType } from './types'
 
@@ -85,6 +85,20 @@ describe('checkToken', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
+  it('refreshes a stored token that is already expired at startup', async () => {
+    // the watch source is the raw access_token, not the derived (expiry-aware) accessToken — which is
+    // undefined here, i.e. exactly the case that has to trigger a refresh
+    local.setItem('token', JSON.stringify({ refresh_token: 'r', access_token: 'stale', token_type: 'Bearer', expires: Date.now() - 1 }))
+    const functions = mockOAuthFunctions()
+    functions.refresh.mockResolvedValue({ access_token: 'fresh', token_type: 'Bearer', expires_in: 60 })
+
+    const restored = createOAuth({ config: { tokenPath: '/t', clientId: 'c' }, functions })
+    await flush()
+
+    expect(functions.refresh).toHaveBeenCalled()
+    expect(restored.accessToken()).toBe('Bearer fresh')
+  })
+
   it('isolates token state between instances', () => {
     oauth.setToken({ access_token: 'first' })
     const second = createOAuth({ storageKey: 'other', functions: mockOAuthFunctions() })
@@ -163,6 +177,18 @@ describe('token accessors', () => {
     expect(oauth.accessToken()).toBe('Bearer at')
   })
 
+  it('accessToken goes undefined once the token expires', () => {
+    const oauth = createOAuth({ functions: mockOAuthFunctions() })
+
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer', expires: Date.now() + 60_000 })
+    expect(oauth.accessToken()).toBe('Bearer at')
+
+    // handing out a dead bearer guarantees a 401, which the fetch layer then stores as the IdP's error —
+    // a session that could not be refreshed should send nothing rather than something known-broken
+    oauth.setToken({ access_token: 'at', token_type: 'Bearer', expires: Date.now() - 1 })
+    expect(oauth.accessToken()).toBeUndefined()
+  })
+
   it('status reflects error, expiry and presence', () => {
     const oauth = createOAuth({ functions: mockOAuthFunctions() })
 
@@ -186,6 +212,45 @@ describe('token accessors', () => {
     const oauth = createOAuth({ functions: mockOAuthFunctions() })
     oauth.setToken({ access_token: 'at', type: OAuthType.RESOURCE })
     expect(oauth.type()).toBe(OAuthType.RESOURCE)
+  })
+})
+
+describe('cross-tab', () => {
+  beforeEach(() => {
+    local.clear()
+  })
+
+  it('signs out when another tab logs out', () => {
+    local.setItem('token', JSON.stringify({ access_token: 'at', token_type: 'Bearer', expires: Date.now() + 60_000 }))
+    const oauth = createOAuth({ config: { tokenPath: '/t', clientId: 'c' }, functions: mockOAuthFunctions() })
+    expect(oauth.isAuthorized()).toBe(true)
+
+    // what logout() in another tab leaves behind, plus the event the browser fires here
+    local.setItem('token', JSON.stringify({}))
+    globalThis.dispatchEvent(new StorageEvent('storage', { key: 'token' }))
+
+    expect(oauth.token()).toEqual({})
+    expect(oauth.isAuthorized()).toBe(false)
+  })
+
+  it("adopts another tab's refreshed token", () => {
+    local.setItem('token', JSON.stringify({ access_token: 'old', token_type: 'Bearer', expires: Date.now() + 60_000 }))
+    const oauth = createOAuth({ config: { tokenPath: '/t', clientId: 'c' }, functions: mockOAuthFunctions() })
+
+    local.setItem('token', JSON.stringify({ access_token: 'new', token_type: 'Bearer', expires: Date.now() + 60_000 }))
+    globalThis.dispatchEvent(new StorageEvent('storage', { key: 'token' }))
+
+    expect(oauth.accessToken()).toBe('Bearer new')
+  })
+
+  it('stops listening once disposed', () => {
+    const oauth = createOAuth({ functions: mockOAuthFunctions() })
+    oauth.dispose()
+
+    local.setItem('token', JSON.stringify({ access_token: 'at', token_type: 'Bearer' }))
+    globalThis.dispatchEvent(new StorageEvent('storage', { key: 'token' }))
+
+    expect(oauth.token()).toEqual({})
   })
 })
 

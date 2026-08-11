@@ -17,7 +17,7 @@ and workers can use it directly; React enters only through the hooks and the pro
 bun add react-oauth-oidc
 ```
 
-Peers: `react` and `react-dom`. Nothing else is required — the protocol runs on `fetch`.
+Peers: `react` and `react-dom`, **19 or newer**. Nothing else is required — the protocol runs on `fetch`.
 
 `axios` is needed only for the optional `react-oauth-oidc/axios` entry, and `@mui/material`,
 `@mui/icons-material` and `@emotion/*` only for `react-oauth-oidc/component`.
@@ -155,7 +155,7 @@ about. When a component needs one fact, ask for that fact:
 | --- | --- |
 | `useIsAuthorized()` | the answer flips |
 | `useOAuthStatus()` | the status changes |
-| `useAccessToken()` | the header value changes |
+| `useAccessToken()` | the header value changes — `undefined` once the token has expired |
 | `useOAuthError()` | the error changes |
 | `useOAuthSelector(fn)` | whatever `fn` returns changes |
 | `useOAuthActions()` | never — no subscription at all |
@@ -217,6 +217,38 @@ The exposed stores (`tokenStore`, `configStore`, `userStore`, `stateStore`) are 
 persistence and the `expires` computation — a raw store write would skip both. `createStore` and
 `createStorageStore` are exported too, if you want stores of your own on the same primitives.
 
+## The stored session
+
+The token is persisted in `localStorage` under `storageKey` (`'token'` by default), so a reload stays
+signed in. Change the key at runtime — `setStorageKey()`, or `useOAuthConfig().setStorageKey` — and the
+new key is read without the old key's token being written to it, which is what a multi-tenant app needs.
+
+### Other tabs
+
+Every instance follows its own key across tabs. Signing out in one tab signs out the others, and a token
+one tab refreshed is adopted by the rest instead of leaving them on a value that is already dead. Nothing
+to wire up: the listener is attached by `start()` and removed by `dispose()`.
+
+### Expiry
+
+An expired token is refreshed before the call that needed it, and one refresh is shared by every
+concurrent caller. When a refresh is impossible — no `refresh_token` — or the IdP rejects it, the session
+goes to `NOT_AUTHORIZED` (or `DENIED`, with the `{error, error_description}` it answered with).
+
+`accessToken()` / `useAccessToken()` is `undefined` for an expired token, the same way `isAuthorized()`
+is `false`, so nothing hands out a bearer that is a guaranteed 401. `token()` still holds the raw value if
+you need to inspect it.
+
+`user()` follows the session: it is cleared whenever the token goes away, including a `logout()` that does
+not navigate, a 401, and a refresh that failed — a signed-out app never renders the previous user's name.
+
+### When storage is unavailable
+
+Reads and writes are best-effort. A quota-exceeded write, Safari's private mode, storage disabled by
+policy, or a corrupt value left under the key by something else are all survivable: the session lives in
+memory for that page and simply does not persist. None of them throws out of `createOAuth()` or
+`setToken()`, which would otherwise take down signing in on a full disk.
+
 ## Calling your own API
 
 Attaching the bearer to your own requests works either way — pick by what your app already uses:
@@ -272,16 +304,22 @@ existing.interceptors.request.use(authorizationInterceptor)
 existing.interceptors.response.use(response => response, unauthorizedInterceptor)
 ```
 
-The adapter takes the instance rather than calling a hook, so it works outside React too. In a component,
-keep the client stable:
+The adapter takes the instance rather than calling a hook, so it works outside React too — and building
+the client next to the instance, in the same bootstrap module, is the pattern to follow:
 
 ```ts
-const oauth = useOAuthInstance()
-const api = useMemo(() => createAxiosClient(oauth), [oauth])
+// oauth.ts
+export const oauth = createOAuth({ config: { /* ... */ } })
+export const api = createAxiosClient(oauth, { baseURL: '/api' })
 ```
 
+One client for the app, importable from anywhere, so an interceptor you add in one module is there for
+every caller. Building it per component instead — `useMemo(() => createAxiosClient(oauth), [oauth])` —
+gives each component its own client, and interceptors added to one are invisible to the others.
+
 Create one client per OAuth instance, never a shared default — on the server, two concurrent requests
-sharing interceptors means one request's bearer on another request's call.
+sharing interceptors means one request's bearer on another request's call. Per request that means building
+both together, exactly as above.
 
 Nothing else in the library touches axios: the protocol calls (`refresh`, `revoke`, the token exchange,
 discovery, `userinfo`) are on `fetch` regardless of which you pick here.
@@ -357,12 +395,16 @@ const SignIn = () => {
 required fields. `form.error` is the IdP's rejection of the last attempt; `dismissError()` hides it, and
 the next attempt shows it again even if the message is identical.
 
+A rejected attempt clears the password and keeps the username — a mistyped password should not cost the
+user their email as well — and stops showing field errors, so the emptied password field does not report
+"required" on top of the IdP's own message. A successful one clears both.
+
 ## Configuration
 
 | option | default | meaning |
 | --- | --- | --- |
 | `config` | — | the provider/endpoint half: `issuerPath`, `clientId`, `clientSecret`, `scope`, `authorizePath`, `tokenPath`, `revokePath`, `logoutPath`, `userPath`, `introspectionPath`, `jwksUri`, `pkce`, `redirectUri`, `logoutRedirectUri` |
-| `storageKey` | `'token'` | the `localStorage` key the token is persisted under; changing it at runtime re-reads that key without writing to it |
+| `storageKey` | `'token'` | the `localStorage` key the token is persisted under, and the key followed across tabs — see [The stored session](#the-stored-session) |
 | `ignorePaths` | `[]` | request URL patterns that must not carry a bearer — see [Skipping public paths](#skipping-public-paths) |
 | `strictJwt` | `true` | verify the `id_token` against the JWKS; with it off, claims are parsed without verification |
 | `autoStart` | `true` | with `false`, building the instance observes nothing and hits no network until you call `start()` |

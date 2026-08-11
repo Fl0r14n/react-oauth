@@ -56,6 +56,52 @@ Worth doing for anything touching SSR or hydration, since the specs cannot see i
   run. `test-setup.ts` restores Bun's native fetch; `jwt.ts` hands jose the platform fetch via its
   `customFetch` option. The JWKS suite then gained the case it never had: strict verification succeeding.
 
+## Done — correctness round, 2026-08-11
+
+Started as a parity check against `vue-oidc` (the sibling Vue library this one was ported from). Nothing
+needed porting: every fix there was already here, and `config.ts`, `flows.ts` and `jwt.ts` are ahead of it
+(pathname-aware `isPathIgnored`, single-use code exchange, clean-slate token on authorize, `revoke` in a
+`finally`, jose's `customFetch`). Vue's `createAxiosOAuth`/`useOAuthHttp` are an artifact of `app.use()`
+being its only resolution path — a React bootstrap exports the client next to the instance instead. What
+the comparison did surface was eight defects of our own, all found by reading rather than by a failing test.
+
+- **`user` outlived its session.** `user.ts` had two guarded fillers (`if (idToken)`, `if (isAuthorized())`)
+  and nothing that ever wrote `undefined`, so `logout()` without a redirect, a 401 and a failed refresh all
+  left the previous user's name and avatar on screen. One `sync()` now owns fill and clear, with a
+  generation counter so an async `userInfo`/`jwt` result cannot land after the session it belonged to ended.
+- **A corrupt storage entry bricked the app.** `JSON.parse` in `read()` is reached from
+  `createStorageStore` → `createOAuth`, which apps call at module scope — so junk under the token key threw
+  where nothing could catch it and the app never rendered. Unparseable now reads as absent.
+- **A rejected write took down signing in.** `setItem` throws on an exceeded quota and in Safari's private
+  mode, out of `setToken`, i.e. out of `login`, `logout`, `oauthCallback` and the 401 handler. Persistence
+  is now best-effort; the in-memory session stands on its own.
+- **Wrong peer range.** `provider.tsx` uses React 19 context-as-provider (`<Ctx value={…}>`) while the
+  manifest said `react: '>=18'`, so React 18 would install cleanly and render a broken tree. Now `>=19`.
+- **An expired bearer was still handed out.** `tokenState` computed `status` with expiry but `accessToken`
+  without it, so `authHeaders` sent a token it knew was dead — a guaranteed 401, which the fetch layer then
+  stores as the IdP's error. `accessToken` is expiry-aware now; `revalidate()` and its watcher moved to the
+  raw `token()?.access_token`, which is the subtlety (see AGENTS.md) — the derived value is empty in exactly
+  the case that has to refresh.
+- **No cross-tab sync.** `storage.listen()`, attached by `start()` and removed by `dispose()`: a logout or
+  a refresh in one tab now reaches the others instead of leaving them on a token the user believes they
+  discarded.
+- **Duplicate `userinfo` requests** — closed by the `sync()` rewrite rather than by a dedupe. `[id_token,
+  isAuthorized]` is watched as one tuple, so a token write is one sync however many fields it moved, and
+  `checkToken`'s `expires` write moves neither. Pinned by a spec that counts the calls.
+- **The form cleared the username on a rejected password**, costing the user their email for a typo. It now
+  clears the password only and drops `submitted`, so the emptied field does not report "required" over the
+  IdP's own message. Reading the outcome needs the unsubscribed `isAuthorized()` getter — `login` reports a
+  rejection through the token, not by throwing, and the subscribed snapshot is from render time.
+
+20 specs added (216 total). Docs updated: a "The stored session" section in the library README covering
+persistence, other tabs, expiry and unavailable storage; the axios recipe now shows the bootstrap singleton
+instead of a per-component `useMemo`; four new entries in AGENTS.md.
+
+Left open, both pre-existing and both accepted: `fetch.ts` stores *any* 401's body as token state,
+including one from an unrelated resource endpoint (`ignorePath()` is the escape hatch, and it is documented);
+and `flows.ts` keeps its `inFlight` map for the life of the page, which is bounded by the number of distinct
+callback URLs a document sees.
+
 ## Not done, deliberately
 
 ### Dropping the implicit and resource-owner grants
