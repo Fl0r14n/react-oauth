@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # `ci` is biome in non-writing mode — the local `check` script would rewrite files instead of failing
+      - run: bun run ci
+      - run: bun run type-check
+      - run: bun run test
+      # the lib build also runs verify:entries, which is what catches an export map that
+      # does not match what tsdown actually emitted
+      - run: bun run build
