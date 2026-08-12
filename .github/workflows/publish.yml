@@ -21,9 +21,10 @@ jobs:
           registry-url: https://registry.npmjs.org # points npm at the registry, independent of how it authenticates
       - run: bun install --frozen-lockfile
       - run: bun run ci
+      # build before type-check: the client app resolves the package through apps/lib/dist
+      - run: bun run build
       - run: bun run type-check
       - run: bun run test
-      - run: bun run build
       # trusted publishing needs npm >= 11.5.1; node 24 ships 11.x but the exact patch drifts
       - run: npm install -g npm@latest
       # No NODE_AUTH_TOKEN: a trusted publisher registered for this repo and workflow on npmjs.com exchanges

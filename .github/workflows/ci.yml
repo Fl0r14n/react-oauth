@@ -16,8 +16,9 @@ jobs:
       - run: bun install --frozen-lockfile
       # `ci` is biome in non-writing mode — the local `check` script would rewrite files instead of failing
       - run: bun run ci
+      # build first: the client app imports react-oauth-oidc through its exports map, which points into
+      # apps/lib/dist, so on a fresh clone type-check cannot resolve the package until it exists. It also
+      # runs verify:entries, which catches an export map disagreeing with what tsdown emitted.
+      - run: bun run build
       - run: bun run type-check
       - run: bun run test
-      # the lib build also runs verify:entries, which is what catches an export map that
-      # does not match what tsdown actually emitted
-      - run: bun run build
