@@ -105,13 +105,6 @@ git push --follow-tags
 gh release create v1.2.0 --generate-notes
 ```
 
-Then watch it land:
-
-```sh
-gh run watch "$(gh run list --workflow publish.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status
-npm view react-oauth-oidc version
-```
-
 ## License
 
 MIT
